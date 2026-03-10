@@ -58,7 +58,7 @@ interface Tunnel0
  tunnel source 192.168.1.10
  tunnel destination 203.0.113.50
  tunnel mode gre ip
- tunnel key 1234              ! Опционально: ключ для аутентификации
+ tunnel key 1234              ! Опционально: ключ для идентификации
  tunnel path-mtu-discovery    ! Важно: автоматическая настройка MTU
  ip mtu 1476                  ! Ручная настройка MTU
  keepalive 10 3               ! Проверка живости туннеля
