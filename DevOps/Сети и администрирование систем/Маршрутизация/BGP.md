@@ -83,3 +83,18 @@ router bgp 65001
   neighbor 10.0.0.1 route-map SET_MED_LOW out
   neighbor 10.0.0.2 route-map SET_MED_HIGH out
 ```
+
+Пример конфигурации **Community**:
+```
+route-map TAG_NO_EXPORT permit 10
+  ! Добавляем стандартный коммьюнити no-export
+  set community no-export
+  
+  ! Важно: иногда нужно явно разрешить отправку коммьюнити
+  set community additive 
+
+router bgp 65001
+  neighbor 10.0.0.1 route-map TAG_NO_EXPORT out
+  ! Разрешаем соседу принимать коммьюнити
+  neighbor 10.0.0.1 send-community
+```
