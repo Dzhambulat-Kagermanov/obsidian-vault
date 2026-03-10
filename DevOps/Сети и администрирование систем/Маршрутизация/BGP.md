@@ -109,7 +109,7 @@ router bgp 65001
 ```
 
 Пример конфигурации **Community**:
-```
+```Router
 route-map TAG_NO_EXPORT permit 10
   ! Добавляем стандартный коммьюнити no-export
   set community no-export
@@ -124,4 +124,38 @@ router bgp 65001
 ```
 
 Обработка Community атрибутов от других маршрутизаторов:
+1. Разрешить передачу/прием Community:
+```Router
+router bgp 65000
+  neighbor 10.0.0.1 remote-as 65001
+  ! Эта команда критична:
+  neighbor 10.0.0.1 send-community 
+  ! Или send-community extended для больших меток (RFC 4360)
+  neighbor 10.0.0.1 send-community extended
+```
 
+2. Написать логику обработки (Route-map на вход):
+```Router
+! Определяем списки community атрибутов для удобства
+ip community-list standard CUST_HIGH permit 65001:100
+ip community-list standard CUST_LOW permit 65001:200
+
+! Создаем карту обработки
+route-map HANDLE_CLIENT_COMMUNITIES permit 10
+  ! Если видим метку 65001:100 -> ставим высокий приоритет
+  match community CUST_HIGH
+  set local-preference 200
+
+route-map HANDLE_CLIENT_COMMUNITIES permit 20
+  ! Если видим метку 65001:200 -> ставим низкий приоритет
+  match community CUST_LOW
+  set local-preference 50
+
+route-map HANDLE_CLIENT_COMMUNITIES permit 30
+  ! Все остальные маршруты пропускаем как есть
+  ! (Важно оставить permit в конце, иначе всё остальное упадет!)
+
+! Применяем к соседу на ВХОД (in)
+router bgp 65000
+  neighbor 10.0.0.1 route-map HANDLE_CLIENT_COMMUNITIES in
+```
