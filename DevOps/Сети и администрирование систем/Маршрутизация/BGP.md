@@ -123,7 +123,8 @@ router bgp 65001
   neighbor 10.0.0.1 send-community
 ```
 
-Обработка Community атрибутов от других маршрутизаторов:
+Обработка **Community** атрибутов от других маршрутизаторов:
+
 1. Разрешить передачу/прием Community:
 ```Router
 router bgp 65000
@@ -159,3 +160,5 @@ route-map HANDLE_CLIENT_COMMUNITIES permit 30
 router bgp 65000
   neighbor 10.0.0.1 route-map HANDLE_CLIENT_COMMUNITIES in
 ```
+
+
