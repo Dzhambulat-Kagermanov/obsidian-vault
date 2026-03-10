@@ -5,7 +5,7 @@ GRE - это протокол туннелирования сетевого ур
 * **Point-to-Point (P2P)** — классический туннель между двумя узлами;
 * **Multipoint GRE (mGRE)** — один интерфейс может работать с множеством удаленных узлов (используется в DMVPN)
 
-Базовая настройка (временная)
+Базовая настройка в linux (временная):
 ```bash
 # Параметры:
 # Локальный внешний IP: 192.168.1.10
@@ -31,4 +31,33 @@ ip route add 172.16.0.0/24 via 10.0.0.2 dev gre0
 ip tunnel show
 ip addr show gre0
 ping -I gre0 10.0.0.2
+```
+
+Настройка в CISCO:
+```Router
+! Параметры:
+! Локальный внешний IP: 192.168.1.10
+! Удаленный внешний IP: 203.0.113.50
+! IP внутри туннеля: 10.0.0.1/30 (локальный), 10.0.0.2/30 (удаленный)
+
+! Создание туннельного интерфейса
+interface Tunnel0
+ description GRE Tunnel to Office
+ ip address 10.0.0.1 255.255.255.252
+ tunnel source 192.168.1.10
+ tunnel destination 203.0.113.50
+ tunnel mode gre ip
+ tunnel key 1234              ! Опционально: ключ для аутентификации
+ tunnel path-mtu-discovery    ! Важно: автоматическая настройка MTU
+ ip mtu 1476                  ! Ручная настройка MTU
+ keepalive 10 3               ! Проверка живости туннеля
+!
+! Маршрутизация
+ip route 172.16.0.0 255.255.0.0 Tunnel0
+!
+! Firewall (ACL)
+access-list 101 permit gre host 192.168.1.10 host 203.0.113.50
+access-list 101 deny ip any any log
+interface GigabitEthernet0/0
+ ip access-group 101 in
 ```
