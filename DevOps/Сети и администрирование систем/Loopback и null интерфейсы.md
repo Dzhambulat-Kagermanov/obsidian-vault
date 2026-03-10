@@ -17,6 +17,15 @@
 Создание loobpack интерфейса в linux:
 ```bash
 ip link add lo1 type dummy
+ip link set dev lo1 up
+ip addr add <id>/<netmask> dev lo1
+```
+
+Создание loopback интерфейса в роутерах
+```Router
+interface lo1
+ip address <ip> 255.255.255.255
+no shutdown
 ```
 
 ### Null интерфейсы:
