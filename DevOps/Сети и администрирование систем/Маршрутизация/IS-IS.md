@@ -193,20 +193,51 @@ IS-IS также формирует соседства благодаря обм
 #### Простая настройка (Все роутеры в L2):
 
 ```Router
-! Включаем процесс IS-IS
-R1(config)# router isis MY_NETWORK
+! 1. Включаем процесс маршрутизации. Задаем имя процесса (локальное значение, не передается соседям)
+R1(config)# router isis <CORE_NET>
+
+! 2. Настраиваем NET
 R1(config-router)# net 49.0001.0000.0000.0001.00
+! 49 = частный AFI
+! 0001 = Area ID
+! 0000.0000.0001 = System ID (уникален!)
+! 00 = N-SEL (всегда 00)
+
+! 3. Выбираем уровень работы
 R1(config-router)# is-type level-2-only
-R1(config-router)# passive-interface Loopback0
+! Варианты: level-1, level-2-only, level-1-2 (по умолчанию)
+! Для магистральных роутеров лучше level-2-only, чтобы не тащить лишнюю БД L1.
 
-! Включаем IS-IS на интерфейсах
+! 4. Включаем широкие метрики (ОБЯЗАТЕЛЬНО для современных сетей)
+R1(config-router)# metric-style wide
+! Старые метрики (narrow) имеют макс. значение 63 на линк и 1024 на путь.
+! Wide позволяют использовать метрики до 16 миллионов, что нужно для TE и больших сетей.
+
+! 5. Опционально: Отключаем проверку MTU (частая проблема при старте)
+R1(config-router)# no lsp-mtu-check
+! Если MTU на линках разный, IS-IS может не поднять соседство. 
+! В продакшене лучше исправить MTU, но для лабы это полезно.
+
+R1(config-router)# exit
+
+! 6. Применяем на интерфейсах
 R1(config)# interface GigabitEthernet0/0
-R1(config-if)# ip router isis MY_NETWORK
+R1(config-if)# ip address 10.1.12.1 255.255.255.252
+! Включаем IS-IS на интерфейсе
+R1(config-if)# ip router isis CORE_NET
+! Задаем уровень соседства конкретно на интерфейсе (переопределяет глобальный is-type)
 R1(config-if)# isis circuit-type level-2-only
+! Задаем стоимость линка
+R1(config-if)# isis metric 10 level-2
+R1(config-if)# exit
 
-R1(config)# interface GigabitEthernet0/1
-R1(config-if)# ip router isis MY_NETWORK
-R1(config-if)# isis circuit-type level-2-only
+! 7. Loopback интерфейс (анонсируем его в сеть)
+R1(config)# interface Loopback0
+R1(config-if)# ip address 1.1.1.1 255.255.255.255
+R1(config-if)# ip router isis CORE_NET
+! Делаем его пассивным (не шлем Hello пакеты, но анонсируем префикс)
+R1(config-if)# passive-interface
+R1(config-if)# exit
 ```
 
 **Разбор команд:**
