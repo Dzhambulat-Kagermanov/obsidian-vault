@@ -223,10 +223,13 @@ R1(config-router)# exit
 ! 6. Применяем на интерфейсах
 R1(config)# interface GigabitEthernet0/0
 R1(config-if)# ip address 10.1.12.1 255.255.255.252
+
 ! Включаем IS-IS на интерфейсе
-R1(config-if)# ip router isis CORE_NET
+R1(config-if)# ip router isis <CORE_NET>
+
 ! Задаем уровень соседства конкретно на интерфейсе (переопределяет глобальный is-type)
 R1(config-if)# isis circuit-type level-2-only
+
 ! Задаем стоимость линка
 R1(config-if)# isis metric 10 level-2
 R1(config-if)# exit
@@ -240,13 +243,3 @@ R1(config-if)# passive-interface
 R1(config-if)# exit
 ```
 
-**Разбор команд:**
-
-|Команда|Что делает|
-|---|---|
-|`router isis MY_NETWORK`|Создаёт процесс IS-IS с именем (tag) MY_NETWORK|
-|`net 49.0001.0000.0000.0001.00`|Задаёт NET адрес (Network Entity Title)|
-|`is-type level-2-only`|Роутер работает только как L2|
-|`passive-interface`|Не посылает Hello на интерфейсе, но анонсирует префикс|
-|`ip router isis`|Включает IS-IS на интерфейсе|
-|`isis circuit-type`|Задаёт уровень соседства на интерфейсе|
