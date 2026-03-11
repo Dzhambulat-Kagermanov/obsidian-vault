@@ -269,7 +269,7 @@ R1(config-if)# exit
 #### Продвинутая настройка (Timers & Authentication):
 
 ```Router
-R1(config)# router isis CORE_NET
+R1(config)# router isis <CORE_NET>
 ! Ускорение таймеров (Hello каждые 100мс, Dead в 3 раза больше)
 R1(config-router)# timers lsp-interval 50
 R1(config-router)# timers spf 50 200 1000
@@ -278,12 +278,12 @@ R1(config-router)# timers spf 50 200 1000
 ! Настройка аутентификации (MD5)
 R1(config-router)# area-password cisco123
 ! Или для конкретного уровня:
-R1(config-router)# authenticate key-chain MY_KEYS level-2
+R1(config-router)# authenticate key-chain <MY_KEYS> level-2
 
 R1(config-router)# exit
 
 ! Настройка ключей
-R1(config)# key chain MY_KEYS
+R1(config)# key chain <MY_KEYS>
 R1(config-keychain)# key 1
 R1(config-keychain-key)# key-string SuperSecretKey
 R1(config-keychain-key)# cryptographic-algorithm hmac-md5
