@@ -274,6 +274,15 @@ interface GigabitEthernet0/0
 
 #### Ускорение конвергенции:
 
+По умолчанию Hello 10s, Dead 40s. Для быстрых сетей можно уменьшить. 
+```Router
+interface GigabitEthernet0/0
+ ip ospf hello-interval 1
+ ip ospf dead-interval 4
+ ! Или использовать функцию fast-timers (зависит от версии IOS)
+```
+
+> Важно! Таймеры должны совпадать у соседей.
 
 ### Настройки фильтраций маршрутов в OSPF:
 
