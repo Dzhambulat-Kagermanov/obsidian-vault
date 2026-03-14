@@ -259,8 +259,21 @@ interface GigabitEthernet0/0
 
 Безопасность обязательна. Используем MD5 или SHA (в новых IOS):
 ```Router
+! Вариант 1: На интерфейсе (MD5)
+interface GigabitEthernet0/0
+ ip ospf authentication message-digest
+ ip ospf message-digest-key 1 md5 MySecretPassword
 
+! Вариант 2: Глобально для области (SHA/HMAC - предпочтительнее)
+router ospf 1
+ area 0 authentication message-digest
+! Затем на интерфейсах задаем ключи
+interface GigabitEthernet0/0
+ ip ospf message-digest-key 10 sha-256 MyStrongerKey
 ```
+
+#### Ускорение конвергенции:
+
 
 ### Настройки фильтраций маршрутов в OSPF:
 
