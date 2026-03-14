@@ -284,6 +284,13 @@ interface GigabitEthernet0/0
 
 > Важно! Таймеры должны совпадать у соседей.
 
+### Команды для отладки:
+
+* `show ip ospf neighbor` — Вывод всех соседей;
+* `show ip ospf interface brief` — Вывод краткой сводки сетей участвующих в процессе OSPF;
+* `show ip ospf database` — Выводит таблицу топологии OSPF (LSDB — Link State Database);
+* `show ip route ospf` — Вывод маршрутов (O, O IA, O E1/E2, ...);
+
 ### Настройки фильтраций маршрутов в OSPF:
 
 #### Фильтрация между областями OSPF:
