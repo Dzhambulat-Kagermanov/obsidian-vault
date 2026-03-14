@@ -108,3 +108,26 @@ iptables -A FORWARD -d 192.168.1.10 -p tcp --dport 8080 -j ACCEPT
 iptables -A FORWARD -s 198.51.100.5 -d 192.168.1.10 -p tcp --dport 8080 -j ACCEPT
 ```
 
+```Router
+! 1. Подготовка интерфейсов
+interface GigabitEthernet0/0
+ description Inside LAN
+ ip address 192.168.1.1 255.255.255.0
+ ip nat inside
+!
+interface GigabitEthernet0/1
+ description Outside WAN
+ ip address 203.0.113.1 255.255.255.0
+ ip nat outside
+
+! 2. Проброс конкретного порта
+ip nat inside source static tcp 192.168.1.10 8080 203.0.113.1 80
+! Или можно указать интерфейс
+ip nat inside source static tcp 192.168.1.10 8080 interface GigabitEthernet0/1 80
+
+! 3. Проброс диапазона портов
+ip nat inside source static tcp 192.168.1.10 8000 203.0.113.1 8000
+ip nat inside source static tcp 192.168.1.10 8001 203.0.113.1 8001
+! Или через range
+ip nat source static inside tcp 192.168.1.10 8000 203.0.113.1 8000 extendable
+```
