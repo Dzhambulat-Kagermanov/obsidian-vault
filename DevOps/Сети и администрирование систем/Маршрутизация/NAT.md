@@ -33,7 +33,7 @@
 - Таблица трансляций хранит: `внутренний_IP:порт ↔ внешний_порт`;
 - Наиболее распространённый тип NAT в домашних и офисных сетях.
 
-Пример конфигурации:
+**Пример конфигурации:**
 ```Router
 interface GigabitEthernet0/0
  ip nat inside
@@ -44,8 +44,12 @@ interface GigabitEthernet0/1
 ip nat pool <NAME> 192.168.10.1-192.168.10.254
 ip nat source dynamic inside-to-ouside pool <NAME> overload interface  GigabitEthernet0/1
 ```
-
 > Ключевое слово `overload` активирует режим PAT.
+
+```bash
+iptables -t nat -A POSTROUTING -o enp7s1 -j MASQUERADE
+```
+> `-j MASQUERADE` активирует режим PAT.
 
 ### SNAT:
 
@@ -56,6 +60,24 @@ ip nat source dynamic inside-to-ouside pool <NAME> overload interface  GigabitEt
 - Идеально для публикации серверов (веб, почта, VPN).
 
 **Когда применяется SNAT:**
-- Внутренний хост инициирует соединение с внешним ресурсом
-- Необходимо скрыть реальный источник трафика
-- Требуется обеспечить возврат трафика через тот же шлюз
+- Внутренний хост инициирует соединение с внешним ресурсом;
+- Необходимо скрыть реальный источник трафика;
+- Требуется обеспечить возврат трафика через тот же шлюз.
+
+**Пример конфигурации:**
+```Router
+ip nat inside source static 192.168.1.100 203.0.113.10
+!
+interface GigabitEthernet0/0
+ ip nat inside
+!
+interface GigabitEthernet0/1
+ ip nat outside
+```
+> Ключевое слово `statis` активирует режим SNAT.
+
+```bash
+iptables -t nat -A POSTROUTING -s 192.168.1.100 -j SNAT --to-source 203.0.113.10
+```
+> `-j SNAT` активирует режим SNAT.
+
