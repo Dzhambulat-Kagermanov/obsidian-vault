@@ -40,7 +40,7 @@
 
 ## Настройка FreeIPA (ALT Linux):
 
-### Установка сервера FreeIPA:
+### Настройка сервера FreeIPA:
 
 #### Системные требования:
 
@@ -245,7 +245,7 @@ files is the Directory Manager password
 The ipa-server-install command was successful
 ```
 
-#### Проверка работоспособности:
+##### Проверка работоспособности:
 
 **Статус служб:**
 
@@ -272,3 +272,312 @@ ping -c 3 ipa.example.com
 dig _ldap._tcp.example.com SRV
 ```
 
+
+### Подключение клиента  к  домену FreeIPA:
+
+**Установка пакетов:**
+
+```bash
+apt-get update && apt-get install freeipa-client
+```
+
+#### Ввод хоста через терминал:
+
+Клиентские компьютеры должны быть настроены на использование DNS-сервера, который был сконфигурирован на сервере FreeIPA во время его установки. В сетевых настройках необходимо указать использовать сервер FreeIPA для разрешения имен. Эти настройки можно выполнить как в графическом интерфейсе, так и в консоли.
+
+В сетевых настройках клиентского хоста необходимо добавить ip freeipa сервера в dns сервера.
+
+**Интерактивная установка.** Запускаем скрипт настройки клиента в интерактивном режиме:
+
+```bash
+ipa-client-install --mkhomedir
+```
+
+Можно добавить параметр `--enable-dns-updates`, чтобы обновить записи DNS с помощью IP-адреса клиентской системы, если выполняется одно из следующих условий:
+
+- Сервер FreeIPA, на котором будет зарегистрирован клиент, был установлен со встроенным DNS;
+- DNS-сервер в сети принимает обновления записей DNS по протоколу GSS-TSIG.
+
+Скрипт установки должен автоматически найти необходимые настройки на FreeIPA сервере, вывести их и спросить подтверждение для найденных параметров:
+
+```bash
+This program will set up IPA client.
+Version 4.9.7
+
+Discovery was successful!
+Do you want to configure CHRONY with NTP server or pool address? [no]: 
+Client hostname: comp08.example.test
+Realm: EXAMPLE.TEST
+DNS Domain: example.test
+IPA Server: ipa.example.test
+BaseDN: dc=example,dc=test
+
+Continue to configure the system with these values? [no]: yes
+```
+
+Затем запрашивается имя пользователя, имеющего право вводить машины в домен, и его пароль (можно использовать администратора по умолчанию, который был создан при установке сервера):
+
+```bash
+User authorized to enroll computers: admin
+Password for admin@EXAMPLE.TEST:
+```
+
+#### Ввод хоста в домен через Центр управления системой:
+
+Для ввода рабочей станции в домен FreeIPA, необходимо в Центре управления системой перейти в раздел «Пользователи» → «Аутентификация».
+
+![[Freeipa2.png]]
+
+В открывшемся окне необходимо ввести имя пользователя, имеющего право вводить машины в домен, и его пароль и нажать кнопку «ОК»:
+
+![[Freeipa_pass.png]]
+
+В случае успешного подключения, будет выведено соответствующее сообщение:
+
+![[Freeipa3.png]]
+#### Проверка работоспособности:
+
+Создаем пользователя в веб-интерфейсе FreeIPA (например, `testuser`), затем на клиенте:
+
+```bash
+su - testuser
+# Если вход прошел успешно — домен работает!
+id testuser
+```
+
+### Основные команды для работы с FreeIPA:
+
+Утилита `ipa` — это основной инструмент администрирования. Все команды имеют структуру:
+`ipa <объект>-<действие> [параметры]`.
+
+#### Аутентификация и сессия:
+
+```bash
+# Получить билет Kerberos (начать сессию)
+kinit admin
+
+# Посмотреть активный билет
+klist
+
+# Уничтожить билет (выйти)
+kdestroy
+
+# Проверить, аутентифицирован ли текущий пользователь
+ipa ping
+```
+
+#### Управление пользователями:
+
+```bash
+# Создать пользователя
+ipa user-add --first=Иван --last=Иванов --email=ivanov@example.com iivanov
+
+# Просмотреть пользователя
+ipa user-show iivanov
+
+# Изменить атрибуты пользователя
+ipa user-mod iivanov --email=new@example.com --title="System Admin"
+
+# Сбросить пароль (требует прав администратора)
+ipa passwd iivanov
+
+# Деактивировать / активировать пользователя
+ipa user-disable iivanov
+ipa user-enable iivanov
+
+# Удалить пользователя (мягкое удаление — в "trash")
+ipa user-del iivanov
+
+# Поиск пользователей
+ipa user-find --last=Иванов
+ipa user-find --all | grep -A5 "uid:"
+
+# Добавить пользователя в группу
+ipa group-add-member developers --users=iivanov
+
+# Просмотреть членство пользователя в группах
+ipa user-show iivanov | grep -A10 "Member of groups"
+```
+
+#### Управление группами:
+
+```bash
+# Создать группу
+ipa group-add --desc="Разработчики" developers
+
+# Просмотреть группу
+ipa group-show developers
+
+# Добавить/удалить участников
+ipa group-add-member developers --users=iivanov,petrov
+ipa group-remove-member developers --users=petrov
+
+# Вложенные группы (добавить одну группу в другую)
+ipa group-add-member admins --groups=developers
+
+# Найти группы
+ipa group-find --desc="разработ"
+```
+
+#### Управление хостами:
+
+```bash
+# Добавить хост вручную (если не через ipa-client-install)
+ipa host-add client1.example.com --desc="Dev workstation"
+
+# Просмотреть хост
+ipa host-show client1.example.com
+
+# Сгенерировать одноразовый пароль для присоединения хоста
+ipa host-add --random client2.example.com
+# Пароль будет выведен в консоль — используйте его при ipa-client-install
+
+# Удалить хост из домена
+ipa host-del client1.example.com
+
+# Найти хосты по шаблону
+ipa host-find --fqdn=*.example.com
+
+# Добавить сервис к хосту (для Kerberos SPN)
+ipa service-add HTTP/client1.example.com
+```
+
+#### Управление сервисами и ключами:
+
+```bash
+# Добавить сервис (для аутентификации приложений)
+ipa service-add postgres/db.example.com
+
+# Получить keytab для сервиса
+ipa-getkeytab -s ipa.example.com -p postgres/db.example.com -k /etc/krb5.keytab
+
+# Просмотреть сервис
+ipa service-show postgres/db.example.com
+
+# Деактивировать сервис
+ipa service-disable postgres/db.example.com
+```
+
+#### Управление паролями и политиками:
+
+```bash
+# Просмотреть глобальную политику паролей
+ipa config-show
+
+# Создать новую политику паролей
+ipa pwpolicy-add --minlength=12 --maxlife=90 --minclasses=4 devs
+
+# Применить политику к группе
+ipa pwpolicy-add devs --minlength=14 --maxlife=60
+
+# Просмотреть политику для пользователя
+ipa pwpolicy-show iivanov
+```
+
+#### HBAC (Host-Based Access Control) — правила доступа к хостам:
+
+```bash
+# Создать правило доступа
+ipa hbacrule-add --desc="Доступ разработчиков к dev-серверам" dev-access
+
+# Добавить пользователей/группы в правило
+ipa hbacrule-add-user dev-access --groups=developers
+
+# Добавить целевые хосты
+ipa hbacrule-add-host dev-access --hosts=dev1.example.com,dev2.example.com
+
+# Разрешить все сервисы (или конкретные, например, ssh)
+ipa hbacrule-add-service dev-access --services=sshd
+
+# Включить правило
+ipa hbacrule-enable dev-access
+
+# Протестировать правило (проверка доступа)
+ipa hbactest --user=iivanov --host=dev1.example.com --service=sshd
+```
+
+#### Управление sudo через FreeIPA:
+
+```bash
+# Создать команду для sudo
+ipa sudocmd-add --desc="Перезапуск nginx" /usr/bin/systemctl
+ipa sudocmd-add-member /usr/bin/systemctl --sudocmds="restart nginx"
+
+# Создать группу команд
+ipa sudocmdgroup-add --desc="Управление веб-серверами" web-admin
+
+# Создать правило sudo
+ipa sudorule-add --desc="Разработчики могут рестартить nginx" web-restart
+
+# Добавить пользователей, хосты и команды в правило
+ipa sudorule-add-user web-restart --groups=developers
+ipa sudorule-add-host web-restart --hosts=web1.example.com
+ipa sudorule-add-sudocmd web-restart --sudocmds=/usr/bin/systemctl
+
+# Разрешить выполнение без пароля (опционально)
+ipa sudorule-add-option web-restart --sudooption=!authenticate
+
+# Включить правило
+ipa sudorule-enable web-restart
+```
+
+#### Управление встроенным DNS (если включен `--setup-dns`):
+
+```bash
+# Создать прямую зону
+ipa dnszone-add example.com --admin-email=admin@example.com
+
+# Добавить A-запись
+ipa dnsrecord-add example.com www --a-rec=192.168.1.50
+
+# Добавить CNAME
+ipa dnsrecord-add example.com portal --cname-rec=www.example.com
+
+# Добавить SRV-запись (для сервисов)
+ipa dnsrecord-add example.com _ldap._tcp --srv-rec="0 100 389 ipa.example.com"
+
+# Просмотреть записи зоны
+ipa dnszone-show example.com
+ipa dnsrecord-find example.com
+
+# Удалить запись
+ipa dnsrecord-del example.com www --a-rec=192.168.1.50
+
+# Создать обратную зону (PTR)
+ipa dnszone-add 1.168.192.in-addr.arpa.
+ipa dnsrecord-add 1.168.192.in-addr.arpa. 50 --ptr-rec=www.example.com
+```
+
+#### Репликация и управление серверами:
+
+```bash
+# Показать топологию реплик
+ipa topologysegment-find
+
+# Добавить реплику (на новом сервере)
+ipa-replica-install --principal=admin
+
+# Принудительная синхронизация с другой репликой
+ipa-replica-manage re-initialize --from=ipa2.example.com
+
+# Проверить статус соглашения о репликации
+ipa-replica-manage list
+
+# Удалить реплику из топологии
+ipa-replica-manage del ipa2.example.com
+```
+
+#### Резервное копирование и восстановление:
+
+```bash
+# Создать полный бэкап (включая LDAP, PKI, конфиги)
+ipa-backup
+
+# Восстановить из бэкапа (только в режиме offline!)
+ipa-restore /var/lib/ipa/backup/ipa-backup-2024-03-17-10-30-00
+
+# Список доступных бэкапов
+ls -la /var/lib/ipa/backup/
+```
+
+> `ipa-restore` останавливает все службы — выполняйте только в окне обслуживания.
