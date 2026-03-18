@@ -30,3 +30,11 @@ Apache использует **MPM (Multi-Processing Modules)** для обраб
 *   Согласно статистике (например, W3Techs), Apache до сих пор используется на **~30% всех веб-сайтов** мира.
 *   Он остается стандартом де-факто для **дешевого виртуального хостинга** (Shared Hosting) именно из-за `.htaccess`.
 *   В корпоративной среде и для специфических задач он по-прежнему незаменим.
+
+**Конфигурация:**
+
+*   **Основные файлы:**
+    *   В Debian/Ubuntu: `/etc/apache2/apache2.conf`
+    *   В RHEL/CentOS: `/etc/httpd/conf/httpd.conf`
+*   **Virtual Hosts (Виртуальные хосты):** Позволяет размещать несколько доменов на одном IP-адресе. Конфигурация обычно лежит в папках `sites-available` / `sites-enabled` (Debian) или `conf.d` (CentOS).
+*   **Управление:** Команды зависят от ОС (например, `systemctl restart apache2` или `systemctl restart httpd`).
