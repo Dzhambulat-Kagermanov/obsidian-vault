@@ -415,15 +415,6 @@ IncludeOptional sites-enabled/*.conf
 |**ProxyPreserveHost**|`On`|Передает оригинальный заголовок `Host` от клиента на бэкенд (важно для виртуальных хостов на бэкенде).|
 |**ProxyTimeout**|`60`|Таймаут для прокси-соединений (сек).|
 
-**Производительность: кэш и сжатие:**
-
-|Директива|Пример|Описание|
-|---|---|---|
-|**ExpiresActive**|`On`|Включает модуль `mod_expires` для управления заголовками кэширования.|
-|**ExpiresByType**|`image/png "access plus 1 month"`|Указывает браузеру кэшировать файлы определенного типа указанный срок.|
-|**AddOutputFilterByType**|`DEFLATE text/css`|Включает gzip-сжатие для указанных MIME-типов перед отправкой клиенту.|
-|**SetOutputFilter**|`DEFLATE`|Альтернативный способ включить сжатие для всей директории.|
-
 **Безопасность и заголовки (`mod_headers`, `mod_ssl`):**
 
 |Директива|Пример|Описание|
@@ -436,15 +427,183 @@ IncludeOptional sites-enabled/*.conf
 |**SSLProtocol**|`all -SSLv3 -TLSv1 -TLSv1.1`|Разрешенные версии протокола. Отключайте старые небезопасные версии.|
 |**SSLCipherSuite**|`HIGH:!aNULL:!MD5`|Разрешенные шифры. Используйте только стойкие алгоритмы.|
 
+
+**Производительность: кэш и сжатие:**
+
+Для работы с сжатием включаем модуль:
+
+```bash
+a2enmod deflate
+```
+
+* **AddOutputFilterByType** - Включает gzip-сжатие для указанных MIME-типов перед отправкой клиенту. Для работы нужно включить модуль `deflate`;
+
+* **DeflateCompressionLevel** - Настройка уровня сжатия (1-9, где 9 = максимум, но больше грузит CPU). Для работы нужно включить модуль `deflate`;
+
+**Пример сжатия:**
+
+```vim
+<IfModule mod_deflate.c>
+    # Сжимать только текстовые типы (картинки/видео уже сжаты)
+    AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css
+    AddOutputFilterByType DEFLATE application/javascript application/json application/xml
+    
+    # Исключения: не сжимать уже сжатые файлы
+    SetEnvIfNoCase Request_URI \.(?:gif|jpe?g|png|zip|gz|mp4)$ no-gzip dont-vary
+    
+    DeflateCompressionLevel 6
+    
+    # Добавлять заголовок Vary: Accept-Encoding (для корректной работы прокси/кэшей)
+    Header append Vary Accept-Encoding
+</IfModule>
+```
+
+Для работы с кешем включаем модуль:
+
+```bash
+a2enmod expires
+```
+
+* **ExpiresByType** - Указывает браузеру кэшировать файлы определенного типа указанный срок. Для работы нужно включить модуль `expires`;
+
+* **ExpiresActive** - Включает модуль `mod_expires` для управления заголовками кэширования. Для работы нужно включить модуль `expires`;
+
+**Пример кеширования:**
+
+```vim
+<IfModule mod_expires.c>
+    ExpiresActive On
+    
+    # Изображения — кэш на 1 месяц
+    ExpiresByType image/jpg "access plus 1 month"
+    ExpiresByType image/jpeg "access plus 1 month"
+    ExpiresByType image/png "access plus 1 month"
+    ExpiresByType image/gif "access plus 1 month"
+    ExpiresByType image/webp "access plus 1 month"
+    ExpiresByType image/svg+xml "access plus 1 week"
+    
+    # CSS и JS — 1 неделя (чтобы быстро обновлять при изменениях)
+    ExpiresByType text/css "access plus 1 week"
+    ExpiresByType application/javascript "access plus 1 week"
+    
+    # Шрифты — 1 год (они редко меняются)
+    ExpiresByType font/woff2 "access plus 1 year"
+    ExpiresByType application/font-woff2 "access plus 1 year"
+    
+    # HTML — не кэшировать долго (чтобы видеть обновления контента)
+    ExpiresByType text/html "access plus 0 seconds"
+</IfModule>
+```
+
+**Пример кеширования через `mod_headers`:**
+
+```vim
+<IfModule mod_headers.c>
+    # Статика: кэш на год + immutable (браузер не будет проверять актуальность)
+    <FilesMatch "\.(jpg|jpeg|png|gif|webp|svg|woff2|ttf|eot)$">
+        Header set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    
+    # CSS/JS: кэш на неделю, но без immutable (чтобы можно было обновить)
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "public, max-age=604800, must-revalidate"
+    </FilesMatch>
+    
+    # HTML: не кэшировать
+    <FilesMatch "\.(html|php)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate"
+    </FilesMatch>
+</IfModule>
+```
+
+
 **Аутентификация и авторизация:**
 
-|Директива|Пример|Описание|
-|---|---|---|
-|**AuthType**|`Basic`|Тип аутентификации: `Basic` (простая) или `Digest` (более безопасная).|
-|**AuthName**|`"Restricted Area"`|Текст, который браузер покажет в окне ввода логина/пароля.|
-|**AuthUserFile**|`/etc/apache2/.htpasswd`|Путь к файлу с хэшами паролей (создается утилитой `htpasswd`).|
-|**Require user**|`admin dzhambulat`|Разрешает доступ только указанным пользователям из файла `.htpasswd`.|
-|**Require valid-user**|—|Разрешает доступ любому, кто прошел аутентификацию.|
+* **AuthType** - Тип аутентификации: `Basic` (простая) или `Digest` (более безопасная);
+
+* **AuthName** - Текст, который браузер покажет в окне ввода логина/пароля;
+
+* **AuthUserFile** - Путь к файлу с хэшами паролей (создается утилитой `htpasswd`);
+
+* **Require user** - Разрешает доступ только указанным пользователям из файла `.htpasswd`;
+
+* **Require valid-user** - Разрешает доступ любому, кто прошел аутентификацию.
+
+**Пример `Basic` защиты:**
+
+Для работы включаем модули:
+
+```bash
+a2enmod auth_basic authn_file
+```
+
+Создание файла с паролями:
+
+```bash
+# Создание файла и добавление первого пользователя (флаг -c создает файл)
+htpasswd -c /etc/apache2/.htpasswd admin
+
+# Добавление пользователей (без -c)
+htpasswd /etc/apache2/.htpasswd manager
+
+# Просмотр содержимого
+cat /etc/apache2/.htpasswd
+# admin:$apr1$xyz$abc123...
+```
+
+```vim
+<Location "/secure">
+    AuthType Basic
+    AuthName "🔐 Restricted Area - Enter Credentials"
+    AuthUserFile /etc/apache2/.htpasswd
+    Require valid-user
+</Location>
+```
+
+**Пример `Digest` защиты (пароль не передается в открытом виде):**
+
+Для работы включаем модули:
+
+```bash
+a2enmod auth_digest authn_file
+```
+
+Создание файла с пользователями и паролями:
+
+```bash
+htdigest -c /etc/apache2/.htdigest "Restricted Area" admin
+```
+
+```vim
+<Location "/secure">
+    AuthType Digest
+    AuthName "Restricted Area"
+    AuthDigestProvider file
+    AuthUserFile /etc/apache2/.htdigest
+    Require valid-user
+</Location>
+```
+
+**Пример аутентификации через внешний LDAP:**
+
+Для работы включаем модули:
+
+```bash
+a2enmod authnz_ldap authn_file
+```
+
+```vim
+# Пример с LDAP (требуется mod_authnz_ldap):
+<Directory "/var/www/internal">
+    AuthType Basic
+    AuthName "Company LDAP"
+    AuthBasicProvider ldap
+    AuthLDAPURL "ldap://ldap.company.com/ou=users,dc=company,dc=com?uid"
+    AuthLDAPBindDN "cn=admin,dc=company,dc=com"
+    AuthLDAPBindPassword "secret"
+    Require valid-user
+</Directory>
+```
 
 ##### Шаг 5. Включаем сайт:
 
