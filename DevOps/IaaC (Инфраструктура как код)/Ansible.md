@@ -696,7 +696,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
 
 ##### Управление пакетами (Package Management):
 
-**package** - Универсальный. Сам выбирает менеджер пакетов (`apt`, `yum`, `dnf`) в зависимости от ОС. Пример:
+* **package** - Универсальный. Сам выбирает менеджер пакетов (`apt`, `yum`, `dnf`) в зависимости от ОС. Пример:
 
 ```yaml
 - name: Установить необходимые пакеты
@@ -708,7 +708,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-**apt** - Специфичен для Debian/Ubuntu. Позволяет делать `update_cache: yes`. Пример:
+* **apt** - Специфичен для Debian/Ubuntu. Позволяет делать `update_cache: yes`. Пример:
 
 ```yaml
 - name: Установить необходимые пакеты
@@ -720,7 +720,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-**yum / dnf** - Для RHEL/CentOS/Fedora. Пример:
+* **yum / dnf** - Для RHEL/CentOS/Fedora. Пример:
 
 ```yaml
 - name: Установить необходимые пакеты
@@ -742,7 +742,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-**pip** - Установка пакетов Python. Пример:
+* **pip** - Установка пакетов Python. Пример:
 
 ```yaml
 - name: Установить необходимые пакеты
@@ -756,19 +756,350 @@ ansible-playbook -i inventory/hosts.ini site.yml
 
 ##### Управление файлами и директориями:
 
-**file** - Создание файлов, папок, ссылок. Изменение прав (`mode`), владельца (`owner`).
+* **file** - Создание файлов, папок, ссылок. Изменение прав (`mode`), владельца (`owner`).
 
-**copy** - Копирование файла **с контроллера** на удаленный сервер.
+**Создание директории с правами**
 
-**template** - Как `copy`, но обрабатывает файл как шаблон **Jinja2** (подставляет переменные).
+```yaml
+- name: Создать директорию для логов приложения
+  file:
+    path: /var/log/myapp
+    state: directory       # Гарантирует, что это папка
+    owner: www-data        # Владелец
+    group: www-data        # Группа
+    mode: '0755'           # Права (rwxr-xr-x)
+    recurse: yes           # Применить рекурсивно, если путь уже существует
+```
 
-**lineinfile** - Гарантирует наличие одной строки в файле. Удаляет дубликаты. Идеально для правки конфигов.
+**Создание пустого файла (touch):**
 
-**blockinfile** - Вставка блока текста в файл (между маркерами).
+```yaml
+- name: Создать пустой файл флага
+  file:
+    path: /opt/app/init.done
+    state: touch           # Аналог команды touch
+    owner: appuser
+    mode: '0644'
+```
 
-**replace** - Замена текста по регулярному выражению.
+**Создание символической ссылки (Symlink):**
 
-**archive / unarchive** - Создание и распаковка архивов (tar, zip).
+```yaml
+- name: Создать симлинк на текущую версию приложения
+  file:
+    src: /opt/app/releases/v2.5.0      # Цель (куда ссылается)
+    dest: /opt/app/current             # Сама ссылка
+    state: link                        # Тип: символическая ссылка
+    force: yes                         # Перезаписать, если dest уже существует
+```
+
+**Удаление файла или директории:**
+
+```yaml
+- name: Удалить старую директорию кэша
+  file:
+    path: /var/cache/myapp
+    state: absent          # Удаляет файл или директорию (рекурсивно)
+```
+
+**Изменение прав существующего файла:**
+
+```yaml
+- name: Исправить права на конфиг
+  file:
+    path: /etc/myapp/config.json
+    mode: '0600'           # Только чтение/запись владельцу
+    owner: root
+    group: root
+```
+
+**Переместить файл или директорию (Move):**
+
+```yaml
+- name: Переместить директорию с данными
+  file:
+    src: /var/data/old_location
+    dest: /var/data/new_location
+    state: file # Или можно не указывать, Ansible поймет сам
+    # Если dest - существующая директория, файл будет перемещен ВНУТРЬ неё.
+    # Если dest не существует, old_location будет переименован в new_location.
+```
+
+
+* **copy** - Копирование файла **с контроллера** на удаленный сервер.
+
+**Простое копирование файла:**
+
+```yaml
+- name: Скопировать статический конфиг
+  copy:
+    src: files/nginx.conf          # Путь относительно playbook или абсолютный на контроллере
+    dest: /etc/nginx/nginx.conf    # Путь на удаленном сервере
+    owner: root
+    group: root
+    mode: '0644'
+```
+
+**Копирование с созданием бэкапа**:
+
+```yaml
+- name: Обновить конфиг с бэкапом оригинала
+  copy:
+    src: files/hosts
+    dest: /etc/hosts
+    backup: yes                    # Создаст копию вида /etc/hosts.ansible_timestamp перед заменой
+    validate: '/usr/sbin/visudo -cf %s' # Проверить синтаксис перед заменой (для sudoers)
+```
+
+**Запись текста прямо из плейбука (параметр `content`):**
+
+```yaml
+- name: Создать файл приветствия
+  copy:
+    content: |
+      Hello from {{ ansible_hostname }}!
+      Deployed at: {{ ansible_date_time.iso8601 }}
+    dest: /var/www/html/index.txt
+    mode: '0644'
+```
+
+**Копирование директории:**
+
+```yaml
+- name: Скопировать всю папку со скриптами
+  copy:
+    src: scripts/                  # Слэш в конце важен! Копирует СОДЕРЖИМОЕ папки
+    dest: /opt/app/scripts/
+    mode: '0755'
+    preserve: yes                  # Сохранить даты модификации и права исходных файлов
+```
+
+* **template** - Как `copy`, но обрабатывает файл как шаблон **Jinja2** (подставляет переменные).
+
+**Применение шаблона с переменными:**
+
+_Предварительно создаём файл `templates/nginx.conf.j2`:_
+
+```jinja2
+server {
+    listen {{ http_port }};
+    server_name {{ domain_name }};
+    
+    {% if enable_ssl %}
+    ssl_certificate /etc/ssl/certs/{{ domain_name }}.crt;
+    {% endif %}
+    
+    location / {
+        proxy_pass http://{{ backend_ip }}:{{ backend_port }};
+    }
+}
+```
+
+```yaml
+- name: Развернуть конфиг nginx из шаблона
+  template:
+    src: templates/nginx.conf.j2
+    dest: /etc/nginx/sites-available/default
+    owner: root
+    group: root
+    mode: '0644'
+    backup: yes
+  vars:
+    http_port: 80
+    domain_name: "example.com"
+    enable_ssl: true
+    backend_ip: "127.0.0.1"
+    backend_port: 8080
+  notify: Restart Nginx  # Уведомление хендлеру при изменении файла
+```
+
+**Шаблон с циклами (генерация списка upstream):**
+
+```jinja2
+upstream backend_pool {
+    {% for server in backend_servers %}
+    server {{ server.ip }}:{{ server.port }} weight={{ server.weight }};
+    {% endfor %}
+}
+```
+
+```yaml
+- name: Generate upstream config
+  template:
+    src: upstream.j2
+    dest: /etc/nginx/conf.d/upstream.conf
+  vars:
+    backend_servers:
+      - { ip: "192.168.1.10", port: 80, weight: 5 }
+      - { ip: "192.168.1.11", port: 80, weight: 3 }
+```
+
+* **lineinfile** - Гарантирует наличие одной строки в файле. Удаляет дубликаты. Идеально для правки конфигов.
+
+**Добавить строку, если её нет:**
+
+```yaml
+- name: Добавить запись в hosts
+  lineinfile:
+    path: /etc/hosts
+    line: "192.168.1.50 db-master.local"
+    state: present
+```
+
+**Заменить существующую строку (по регулярке):**
+
+```yaml
+- name: Изменить порт SSH в конфиге
+  lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?Port\s+\d+'      # Ищем строку типа "Port 22" или "#Port 22"
+    line: 'Port 2222'            # Заменяем на эту
+    state: present
+  notify: Restart SSHD
+```
+
+**Удалить строку:**
+
+```yaml
+- name: Удалить небезопасную настройку
+  lineinfile:
+    path: /etc/security/limits.conf
+    regexp: '^.*soft.*nofile.*'
+    state: absent
+```
+
+**Вставить строку после определенной линии:**
+
+```yaml
+- name: Добавить переменную окружения после PATH
+  lineinfile:
+    path: /etc/environment
+    line: 'MY_APP_VAR="production"'
+    insertafter: '^PATH='        # Вставить сразу после строки начинающейся с PATH=
+```
+
+* **blockinfile** - Вставка блока текста в файл (между маркерами).
+
+**Вставка блока конфигурации:**
+
+```yaml
+- name: Добавить настройки ядра в sysctl
+  blockinfile:
+    path: /etc/sysctl.conf
+    block: |
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.send_redirects = 0
+      vm.swappiness = 10
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+    create: yes
+```
+
+_Результат в файле_
+
+```Text
+# BEGIN ANSIBLE MANAGED BLOCK
+net.ipv4.ip_forward = 1
+net.ipv4.conf.all.send_redirects = 0
+vm.swappiness = 10
+# END ANSIBLE MANAGED BLOCK
+```
+
+Если запустить тот же плейбук с измененным содержимым `block`, Ansible найдет маркеры и заменит только текст внутри них, не трогая остальной файл.
+
+**Удаление блока:**
+
+```yaml
+- name: Удалить блок настроек
+  blockinfile:
+    path: /etc/sysctl.conf
+    block: ""                  # Пустой блок
+    state: absent              # Или просто указать state: absent без block
+    marker: "# {mark} ANSIBLE MANAGED BLOCK"
+```
+
+* **replace** - Замена текста по регулярному выражению.
+
+**Простая замена слова:**
+
+```yaml
+- name: Заменить старое имя домена на новое
+  replace:
+    path: /var/www/html/config.php
+    regexp: 'old-domain\.com'
+    replace: 'new-domain.com'
+```
+
+**Замена значения параметра:**
+
+```yaml
+- name: Изменить максимальное количество соединений
+  replace:
+    path: /etc/postgresql/14/main/postgresql.conf
+    regexp: '^max_connections\s*=\s*\d+'
+    replace: 'max_connections = 200'
+```
+
+**Удаление комментариев или лишних строк:**
+
+```bash
+- name: Удалить все пустые строки в файле
+  replace:
+    path: /tmp/cleanup.txt
+    regexp: '^\n'
+    replace: ''
+```
+
+* **archive / unarchive** - Создание и распаковка архивов (tar, gz, zip, bz2).
+
+**Создание архива (Backup):**
+
+```yaml
+- name: Создать архив с логами
+  archive:
+    path:
+      - /var/log/myapp/*.log
+      - /var/log/myapp/error.log
+    dest: /backups/myapp_logs_{{ ansible_date_time.date }}.tar.gz
+    format: gz
+    owner: backup_user
+    mode: '0640'
+```
+
+**Распаковка архива (с контроллера):**
+
+```yaml
+- name: Распаковать приложение
+  unarchive:
+    src: files/app-release-v1.0.tar.gz  # Лежит на машине Ansible
+    dest: /opt/app/                     # Распаковать сюда
+    owner: appuser
+    group: appuser
+    creates: /opt/app/bin/start.sh      # Не распаковывать, если этот файл уже есть (идемпотентность)
+```
+
+**Распаковка архива (уже лежащего на сервере):**
+
+```yaml
+- name: Распаковать архив скачанный ранее
+  unarchive:
+    src: /tmp/downloaded-package.zip    # Лежит на удаленном сервере
+    dest: /opt/software/
+    remote_src: yes                     # ВАЖНО: сказать Ansible, что источник локальный для хоста
+    creates: /opt/software/readme.txt
+```
+
+**Распаковка с исключением файлов:**
+
+```yaml
+- name: Распаковать без тестовых данных
+  unarchive:
+    src: dataset.tar.gz
+    dest: /data/
+    remote_src: yes
+    exclude:
+      - "*.tmp"
+      - "tests/"
+```
 
 ##### Управление сервисами и процессами:
 
