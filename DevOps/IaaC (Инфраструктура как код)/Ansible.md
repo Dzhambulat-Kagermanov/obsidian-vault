@@ -586,7 +586,7 @@ ansible <имя_хоста> -m setup
 | Inventory vars      | Переменные прямо в файле инвентаря    | Средний           |
 | Role `defaults`     | Файл `roles/<role>/defaults/main.yml` | Низкий            |
 
-Переменные окружения (`group_vars` и `host_vars`) - это **лучшая практика** для разделения настроек. Рядом с инвентарем создаются папки, имена которых совпадают с группами или хостами
+**Переменные окружения (`group_vars` и `host_vars`)** - это лучшая практика для разделения настроек. Рядом с инвентарем создаются папки, имена которых совпадают с группами или хостами
 
 ```Structure
 inventory/
@@ -599,4 +599,65 @@ inventory/
 │   └── host_vars/
 │       ├── web01.yml      # Специфика конкретного хоста
 │       └── db01.yml
+```
+
+**Переменные командной строки (`extra_vars`)** имеют самый высокий приоритет. Удобно для CI/CD или разовых запусков.
+
+```bash
+ansible-playbook site.yml -e "deploy_version=1.2.3" -e "env=production"
+
+# или через файл
+ansible-playbook site.yml -e "@vars/deploy_params.yml"
+```
+
+### Рекомендуемая структура проекта:
+
+Эта структура подходит для сложных проектов с ролями и несколькими окружениями.
+
+```Structure
+my_ansible_project/
+├── ansible.cfg                 # Конфигурация Ansible
+├── requirements.yml            # Зависимости (роли и коллекции из Galaxy)
+├── .gitignore                  # Игнорируемые файлы (.vault_pass, *.retry)
+├── .vault_pass                 # Пароль vault (НЕ коммитить в git!)
+│
+├── inventory/                  # Инвентари для разных сред
+│   ├── production/
+│   │   ├── hosts.yml
+│   │   ├── group_vars/
+│   │   └── host_vars/
+│   └── staging/
+│       ├── hosts.yml
+│       ├── group_vars/
+│       └── host_vars/
+│
+├── playbooks/                  # Точка входа (плейбуки)
+│   ├── site.yml                # Главный плейбук
+│   ├── webservers.yml
+│   └── dbservers.yml
+│
+├── roles/                      # Локальные роли проекта
+│   ├── common/
+│   ├── nginx/
+│   └── app/
+│
+├── collections/                # Локальные коллекции (если есть)
+│   └── mycompany/
+│
+├── plugins/                    # Кастомные плагины
+│   ├── filter/
+│   ├── lookup/
+│   └── callback/
+│
+├── vars/                       # Глобальные переменные
+│   ├── common.yml
+│   └── secrets.yml             # Зашифровано через ansible-vault
+│
+├── files/                      # Статические файлы (для copy)
+│   └── configs/
+│
+├── templates/                  # Jinja2 шаблоны (для template)
+│   └── app/
+│
+└── logs/                       # Логи выполнения (добавить в .gitignore)
 ```
