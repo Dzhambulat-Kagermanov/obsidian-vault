@@ -206,6 +206,331 @@ ansible-config dump
 - **`warn`**: Цвет для предупреждений.
     - _Пример:_ `warn = bright purple`
 
+### Настройка Inventory файла:
+
+Инвентарь (Inventory) в Ansible — это файл или набор файлов, в которых описываются управляемые хосты, их группировка и переменные. Ansible поддерживает два основных формата: **INI** (традиционный) и **YAML** (современный).
+
+#### INI Format (Традиционный):
+
+Это классический формат, похожий на конфигурационные файлы Windows. Он компактен и привычен для многих администраторов.
+
+```ini
+# =============================================================================
+# Ansible Inventory - INI Format
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Глобальные переменные (применяются ко всем хостам)
+# -----------------------------------------------------------------------------
+[all:vars]
+ansible_user = ansible
+ansible_ssh_private_key_file = ~/.ssh/id_rsa_ansible
+ansible_python_interpreter = /usr/bin/python3
+ansible_become = yes
+ansible_become_method = sudo
+
+# -----------------------------------------------------------------------------
+# Группы серверов
+# -----------------------------------------------------------------------------
+
+# Веб-серверы (Production)
+[webservers]
+web01.example.com ansible_host=192.168.1.10
+web02.example.com ansible_host=192.168.1.11
+web03.example.com ansible_host=192.168.1.12
+
+# Веб-серверы (Staging)
+[webservers_staging]
+web-stage01.example.com ansible_host=10.0.1.10
+web-stage02.example.com ansible_host=10.0.1.11
+
+# Базы данных
+[dbservers]
+db01.example.com ansible_host=192.168.1.20 db_role=master
+db02.example.com ansible_host=192.168.1.21 db_role=replica
+db03.example.com ansible_host=192.168.1.22 db_role=replica
+
+# Балансировщики нагрузки
+[lbservers]
+lb01.example.com ansible_host=192.168.1.5
+lb02.example.com ansible_host=192.168.1.6
+
+# Мониторинг
+[monitoring]
+monitor01.example.com ansible_host=192.168.1.30
+
+# -----------------------------------------------------------------------------
+# Вложенные группы (Группы групп)
+# -----------------------------------------------------------------------------
+
+# Все производственные серверы
+[production:children]
+webservers
+dbservers
+lbservers
+monitoring
+
+# Все веб-серверы (prod + staging)
+[all_webservers:children]
+webservers
+webservers_staging
+
+# -----------------------------------------------------------------------------
+# Переменные для групп
+# -----------------------------------------------------------------------------
+
+[webservers:vars]
+http_port = 80
+https_port = 443
+nginx_version = 1.24.0
+max_connections = 1000
+
+[dbservers:vars]
+db_port = 5432
+db_engine = postgresql
+db_backup_enabled = true
+
+[production:vars]
+environment = production
+monitoring_enabled = true
+log_level = warning
+
+[webservers_staging:vars]
+environment = staging
+monitoring_enabled = false
+log_level = debug
+
+# -----------------------------------------------------------------------------
+# Хосты с индивидуальными переменными
+# -----------------------------------------------------------------------------
+
+[special:vars]
+# Хост с нестандартным портом SSH
+bastion.example.com ansible_host=203.0.113.1 ansible_port=2222 ansible_user=admin
+
+# Хост с другим интерпретатором Python (например, старый CentOS)
+legacy01.example.com ansible_host=192.168.1.100 ansible_python_interpreter=/usr/bin/python2
+```
+
+**Ключевые элементы INI формата:**
+
+|Синтаксис|Описание|
+|---|---|
+|`[groupname]`|Объявление группы хостов|
+|`[groupname:children]`|Группа, содержащая другие группы (вложенность)|
+|`[groupname:vars]`|Переменные, применяемые ко всей группе|
+|`[all:vars]`|Глобальные переменные для всех хостов|
+|`key=value`|Переменные хоста, указанные прямо в строке|
+
+#### YAML Format (Современный):
+
+Формат YAML более структурирован, удобен для версионирования и позволяет использовать сложные конструкции (списки, словари). Файл обычно называется `hosts.yml` или `inventory.yml`.
+
+```yaml
+---
+# =============================================================================
+# Ansible Inventory - YAML Format
+# =============================================================================
+
+all:
+  # Глобальные переменные для всех хостов
+  vars:
+    ansible_user: ansible
+    ansible_ssh_private_key_file: ~/.ssh/id_rsa_ansible
+    ansible_python_interpreter: /usr/bin/python3
+    ansible_become: true
+    ansible_become_method: sudo
+    ntp_servers:
+      - 0.pool.ntp.org
+      - 1.pool.ntp.org
+
+  # Дочерние группы
+  children:
+    
+    # -----------------------------------------------------------------------
+    # Веб-серверы (Production)
+    # -----------------------------------------------------------------------
+    webservers:
+      hosts:
+        web01.example.com:
+          ansible_host: 192.168.1.10
+          server_id: 1
+          datacenter: dc1
+        web02.example.com:
+          ansible_host: 192.168.1.11
+          server_id: 2
+          datacenter: dc1
+        web03.example.com:
+          ansible_host: 192.168.1.12
+          server_id: 3
+          datacenter: dc2
+      vars:
+        http_port: 80
+        https_port: 443
+        nginx_version: 1.24.0
+        max_connections: 1000
+        environment: production
+
+    # -----------------------------------------------------------------------
+    # Веб-серверы (Staging)
+    # -----------------------------------------------------------------------
+    webservers_staging:
+      hosts:
+        web-stage01.example.com:
+          ansible_host: 10.0.1.10
+          server_id: 101
+        web-stage02.example.com:
+          ansible_host: 10.0.1.11
+          server_id: 102
+      vars:
+        environment: staging
+        monitoring_enabled: false
+        log_level: debug
+
+    # -----------------------------------------------------------------------
+    # Базы данных
+    # -----------------------------------------------------------------------
+    dbservers:
+      hosts:
+        db01.example.com:
+          ansible_host: 192.168.1.20
+          db_role: master
+          db_priority: 1
+        db02.example.com:
+          ansible_host: 192.168.1.21
+          db_role: replica
+          db_priority: 2
+        db03.example.com:
+          ansible_host: 192.168.1.22
+          db_role: replica
+          db_priority: 3
+      vars:
+        db_port: 5432
+        db_engine: postgresql
+        db_backup_enabled: true
+        db_backup_time: "02:00"
+
+    # -----------------------------------------------------------------------
+    # Балансировщики нагрузки
+    # -----------------------------------------------------------------------
+    lbservers:
+      hosts:
+        lb01.example.com:
+          ansible_host: 192.168.1.5
+          lb_algorithm: round_robin
+        lb02.example.com:
+          ansible_host: 192.168.1.6
+          lb_algorithm: least_conn
+      vars:
+        haproxy_version: 2.8
+
+    # -----------------------------------------------------------------------
+    # Мониторинг
+    # -----------------------------------------------------------------------
+    monitoring:
+      hosts:
+        monitor01.example.com:
+          ansible_host: 192.168.1.30
+          prometheus_port: 9090
+          grafana_port: 3000
+      vars:
+        monitoring_enabled: true
+        alert_email: admin@example.com
+
+    # -----------------------------------------------------------------------
+    # Специальные хосты
+    # -----------------------------------------------------------------------
+    special:
+      hosts:
+        bastion.example.com:
+          ansible_host: 203.0.113.1
+          ansible_port: 2222
+          ansible_user: admin
+          is_bastion: true
+        legacy01.example.com:
+          ansible_host: 192.168.1.100
+          ansible_python_interpreter: /usr/bin/python2
+          is_legacy: true
+
+    # -----------------------------------------------------------------------
+    # Вложенные группы (Группы групп)
+    # -----------------------------------------------------------------------
+    production:
+      children:
+        webservers:
+        dbservers:
+        lbservers:
+        monitoring:
+      vars:
+        environment: production
+        monitoring_enabled: true
+        log_level: warning
+        compliance_required: true
+
+    all_webservers:
+      children:
+        webservers:
+        webservers_staging:
+```
+
+**Ключевые элементы YAML формата:**
+
+| Ключ                       | Описание                     |
+| -------------------------- | ---------------------------- |
+| `all`                      | Корневой элемент инвентаря   |
+| `all.vars`                 | Глобальные переменные        |
+| `all.children`             | Секция для определения групп |
+| `hosts`                    | Список хостов внутри группы  |
+| `vars` (внутри группы)     | Переменные группы            |
+| `children` (внутри группы) | Вложенные группы             |
+
+#### Best Practices:
+
+1. **Разделение инвентаря:** Вместо одного большого файла используйте директорию `inventory/`:
+
+```Structure
+inventory/
+├── production/
+│   ├── hosts.yml
+│   └── group_vars/
+├── staging/
+│   ├── hosts.yml
+│   └── group_vars/
+└── requirements.yml
+```
+
+Запуск: `ansible-playbook -i inventory/production site.yml`
+
+
+2. **Не храните секреты в инвентаре:** Используйте **Ansible Vault** для шифрования чувствительных данных (пароли, ключи).
+
+```bash
+ansible-vault encrypt inventory/group_vars/all/vault.yml
+```
+
+3. **Используйте `ansible_host`:** Если имя хоста в инвентаре отличается от реального IP или DNS, всегда явно указывайте `ansible_host`.
+
+
+4. **Проверка инвентаря:** Перед запуском плейбуков проверяйте корректность подключения и переменных:
+
+```bash
+# Проверка подключения ко всем хостам
+ansible all -m ping -i hosts.ini
+
+# Просмотр переменных для конкретного хоста
+ansible web01.example.com -m debug -a "var=hostvars[inventory_hostname]" -i hosts.ini
+
+# Визуализация графа хостов
+ansible-graph -i hosts.ini
+```
+
+   
+5. **Выбор формата:**
+    - Используйте **YAML**, если вы начинаете новый проект или у вас сложная структура переменных.
+    - Используйте **INI**, если нужно быстро поправить конфиг или вы привыкли к старому синтаксису. Ansible отлично работает с обоими.
+
+
+
 ### Встроенные переменные:
 
 В Ansible есть два основных типа "встроенных" переменных, которые вы можете использовать в плейбуках: **Facts (Факты)** и **Magic Variables (Магические переменные)**.
