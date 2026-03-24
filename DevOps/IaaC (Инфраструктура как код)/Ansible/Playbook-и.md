@@ -42,11 +42,296 @@ ansible-playbook -i inventory/hosts.ini site.yml
 2. Выполнит задачу 1: проверит, стоит ли nginx. Если нет — установит. Если есть — ничего не сделает (идемпотентность).
 3. Выполнит задачу 2: проверит статус сервиса. Если не запущен — запустит.
 
-## Основные модули:
+### Циклы (Loops):
 
-### Управление пакетами (Package Management):
+Циклы позволяют выполнять одну и ту же задачу несколько раз с разными параметрами.
 
-#### Package:
+#### Простой цикл (`loop`):
+
+```yaml
+tasks:
+  - name: Установить набор пакетов
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - nginx
+      - postgresql
+      - redis
+      - python3-pip
+    # item — это специальная переменная, содержащая текущее значение списка
+```
+
+#### Цикл по словарям (Dictionaries):
+
+```yaml
+tasks:
+  - name: Создать пользователей с настройками
+    user:
+      name: "{{ item.name }}"
+      groups: "{{ item.groups }}"
+      shell: "{{ item.shell }}"
+      create_home: yes
+    loop:
+      - { name: 'alice', groups: 'sudo,developers', shell: '/bin/bash' }
+      - { name: 'bob', groups: 'developers', shell: '/bin/zsh' }
+      - { name: 'charlie', groups: 'guests', shell: '/bin/false' }
+```
+
+_Альтернативный синтаксис (более читаемый для сложных структур):_
+
+```yaml
+    loop:
+      - name: alice
+        groups: sudo,developers
+        shell: /bin/bash
+      - name: bob
+        groups: developers
+        shell: /bin/zsh
+```
+
+#### Цикл с нумерацией (`loop_control` + `index_var`):
+
+```yaml
+tasks:
+  - name: Создать конфиги для воркеров
+    template:
+      src: worker.conf.j2
+      dest: "/etc/app/worker_{{ item.index }}.conf"
+    loop: "{{ range(1, 5) | list }}" # Генерирует список [1, 2, 3, 4]
+    loop_control:
+      index_var: idx # Имя переменной для индекса (по умолчанию item)
+      label: "Worker {{ idx }}" # Как показывать в выводе (чтобы не спамить числами)
+    
+    # Внутри задачи используем {{ idx }} или {{ item }} (которое равно числу)
+```
+
+#### Цикл по файлам или результатам команд:
+
+```yaml
+tasks:
+  # 1. Найти все логи старше 7 дней
+  - name: Найти старые логи
+    find:
+      paths: /var/log/myapp
+      patterns: "*.log"
+      age: 7d
+    register: old_logs
+
+  # 2. Удалить найденные файлы
+  - name: Удалить старые логи
+    file:
+      path: "{{ item.path }}"
+      state: absent
+    loop: "{{ old_logs.files }}"
+    when: old_logs.matched > 0 # Защита от ошибки, если ничего не найдено
+```
+
+
+### Условия (Conditionals):
+
+Условие `when` позволяет выполнить задачу только если выражение истинно (`true`).
+
+#### Базовые сравнения
+
+```yaml
+tasks:
+  - name: Установить Apache только на CentOS/RedHat
+    yum:
+      name: httpd
+      state: present
+    when: ansible_os_family == "RedHat"
+
+  - name: Установить Nginx только на Debian/Ubuntu
+    apt:
+      name: nginx
+      state: present
+    when: ansible_os_family == "Debian"
+
+  - name: Настроить большой объем памяти
+    lineinfile:
+      path: /etc/sysctl.conf
+      line: "vm.swappiness=10"
+    when: ansible_memtotal_mb > 8192 # Если ОЗУ > 8 ГБ
+```
+
+#### Логические операторы (`and`, `or`, `not`):
+
+```yaml
+tasks:
+  - name: Обновить ядро только на Production Ubuntu 22.04
+    apt:
+      name: linux-generic
+      state: latest
+    when: 
+      - env_type == "production"
+      - ansible_distribution == "Ubuntu"
+      - ansible_distribution_version == "22.04"
+      # Все условия должны быть true (логическое И)
+
+  - name: Отправить алерт при ошибке или критической загрузке
+    mail:
+      subject: "Alert on {{ inventory_hostname }}"
+    when: task_failed == true or load_average > 5.0
+```
+
+#### Проверка существования переменных:
+
+```yaml
+tasks:
+  - name: Настроить доп. диск, если переменная задана
+    mount:
+      path: /data
+      src: "{{ data_disk_device }}"
+      fstype: ext4
+      state: mounted
+    when: data_disk_device is defined
+
+  - name: Запустить скрипт, если он есть
+    command: /opt/scripts/custom_init.sh
+    when: custom_script_path is defined and custom_script_path != ""
+```
+
+#### Регулярные выражения в условиях:
+
+```yaml
+tasks:
+  - name: Выполнить только если имя хоста начинается с 'web'
+    debug:
+      msg: "Это веб-сервер"
+    when: inventory_hostname is match("web.*")
+
+  - name: Выполнить если версия содержит 'beta'
+    command: ./run_beta_tests.sh
+    when: app_version is search("beta")
+```
+
+#### Обработка ошибок в условиях:
+
+```yaml
+tasks:
+  - name: Попытаться остановить старый сервис
+    service:
+      name: legacy-app
+      state: stopped
+    register: stop_result
+    ignore_errors: yes # Не останавливать плейбук при ошибке
+
+  - name: Записать лог, если сервис не удалось остановить
+    lineinfile:
+      path: /var/log/cleanup.log
+      line: "Failed to stop legacy-app on {{ ansible_date_time.iso8601 }}"
+    when: stop_result.failed
+```
+
+#### Комбинация Циклов и Условий:
+
+```yaml
+vars:
+  services_to_manage:
+    - name: nginx
+      enabled: true
+      state: started
+    - name: mysql
+      enabled: false # Мы хотим его отключить
+      state: stopped
+    - name: redis
+      enabled: true
+      state: started
+
+tasks:
+  - name: Управление сервисами
+    service:
+      name: "{{ item.name }}"
+      enabled: "{{ item.enabled }}"
+      state: "{{ item.state }}"
+    loop: "{{ services_to_manage }}"
+    when: item.enabled == true or item.state == 'started' 
+    # Пример условия: делаем что-то, если сервис должен быть включен ИЛИ запущен
+```
+
+> Условие `when` применяется ко **всей задаче** для конкретного элемента цикла. Если условие ложно, этот элемент пропускается, но цикл продолжается для следующих элементов.
+
+### Полезные флаги для запуска playbook-а:
+
+**`--check` (Dry Run)** - показывает, что _изменилось бы_, но не вносит изменений.
+
+```bash
+ansible-playbook deploy_app.yml --check
+```
+
+**`--diff`** - показывает разницу (diff) в файлах, которые изменятся (работает с `--check`).
+
+```bash
+ansible-playbook deploy_app.yml --check --diff
+```
+
+**`--limit`** - запустить только на конкретном хосте или группе, даже если в плейбуке указано `hosts: all`.
+
+```bash
+ansible-playbook deploy_app.yml --limit web01
+```
+
+**`--syntax-check`** - проверка синтаксиса.
+
+```bash
+ansible-playbook site.yml --syntax-check
+```
+
+**`--start-at-task`** - начать выполнение не с начала, а с конкретной задачи (удобно при отладке ошибок в середине).
+
+```bash
+ansible-playbook deploy_app.yml --start-at-task "Создание пользователя приложения"
+```
+
+**`-v`, `-vv`, `-vvv`, `-vvvv`, `-vvvvv`** - режимы отладки (verbosity). Показывают больше деталей о подключении и переменных.
+
+```bash
+ansible-playbook deploy_app.yml -vvv
+```
+
+### Тегирование задач:
+
+Теги позволяют запускать только часть плейбука.
+
+```yaml
+tasks:
+  - name: Установить пакеты
+    apt: ...
+    tags: [packages, base]
+
+  - name: Настроить конфиг
+    template: ...
+    tags: [config, web]
+
+  - name: Перезапустить сервис
+    service: ...
+    tags: [restart, web]
+```
+
+**Только установка:**
+
+```bash
+ansible-playbook site.yml --tags packages
+```
+
+**Всё кроме перезапуска:**
+
+```bash
+ansible-playbook site.yml --skip-tags restart
+```
+
+**Показать список тегов:**
+
+```bash
+ansible-playbook site.yml --list-tags
+```
+
+### Основные модули:
+
+#### Управление пакетами (Package Management):
+
+##### Package:
 
 Универсальный. Сам выбирает менеджер пакетов (`apt`, `yum`, `dnf`) в зависимости от ОС. Пример:
 
@@ -60,7 +345,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-#### Apt:
+##### Apt:
 
 Специфичен для Debian/Ubuntu. Позволяет делать `update_cache: yes`. Пример:
 
@@ -74,7 +359,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-#### Yum / Dnf:
+##### Yum / Dnf:
 
 Для RHEL/CentOS/Fedora. Пример:
 
@@ -98,7 +383,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-#### PIP:
+##### PIP:
 
  Установка пакетов Python. Пример:
 
@@ -112,9 +397,9 @@ ansible-playbook -i inventory/hosts.ini site.yml
     state: present
 ```
 
-### Управление файлами и директориями:
+#### Управление файлами и директориями:
 
-#### File:
+##### File:
 
 Создание файлов, папок, ссылок. Изменение прав (`mode`), владельца (`owner`).
 
@@ -185,7 +470,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     # Если dest не существует, old_location будет переименован в new_location.
 ```
 
-#### Copy: 
+##### Copy: 
 
 Копирование файла **с контроллера** на удаленный сервер.
 
@@ -235,7 +520,7 @@ ansible-playbook -i inventory/hosts.ini site.yml
     preserve: yes                  # Сохранить даты модификации и права исходных файлов
 ```
 
-#### Template:
+##### Template:
 
 Как `copy`, но обрабатывает файл как шаблон **Jinja2** (подставляет переменные).
 
@@ -297,7 +582,7 @@ upstream backend_pool {
       - { ip: "192.168.1.11", port: 80, weight: 3 }
 ```
 
-#### Lineinfile:
+##### Lineinfile:
 
 Гарантирует наличие одной строки в файле. Удаляет дубликаты. Идеально для правки конфигов.
 
@@ -358,7 +643,7 @@ upstream backend_pool {
                               # %s заменяется на временный файл проверки
 ```
 
-#### Blockinfile:
+##### Blockinfile:
 
 Вставка блока текста в файл (между маркерами).
 
@@ -399,7 +684,7 @@ vm.swappiness = 10
     marker: "# {mark} ANSIBLE MANAGED BLOCK"
 ```
 
-#### Replace:
+##### Replace:
 
 Замена текста по регулярному выражению.
 
@@ -433,7 +718,7 @@ vm.swappiness = 10
     replace: ''
 ```
 
-#### Archive / Unarchive:
+##### Archive / Unarchive:
 
 Создание и распаковка архивов (tar, gz, zip, bz2).
 
@@ -487,9 +772,9 @@ vm.swappiness = 10
       - "tests/"
 ```
 
-### Управление сервисами и процессами:
+#### Управление сервисами и процессами:
 
-#### Service:
+##### Service:
 
 Универсальное управление сервисами (SysV, Upstart, systemd). Ansible сам определяет, какая система инициализации используется (systemd, SysVinit, Upstart), и вызывает нужную команду.
 
@@ -549,7 +834,7 @@ vm.swappiness = 10
   when: docker_status.status is defined
 ```
 
-#### Systemd:
+##### Systemd:
 
 Прямое управление `systemctl`. Дает больше контроля (например, просмотр логов юнита).
 
@@ -602,7 +887,7 @@ vm.swappiness = 10
     state: stopped
 ```
 
-#### Command / Shell
+##### Command / Shell
 
 Запуск произвольных команд. Использовать только если нет спец. модуля. 
 - **`command`**: Запускает команду напрямую, без оболочки. Безопаснее, но нельзя использовать пайпы (`|`), перенаправление (`>`, `>>`), переменные среды `$VAR`;
@@ -644,9 +929,9 @@ vm.swappiness = 10
     DB_HOST: 192.168.1.50
 ```
 
-### Пользователи и группы:
+#### Пользователи и группы:
 
-#### User:
+##### User:
 
 Создание, удаление, модификация пользователей.
 
@@ -758,7 +1043,7 @@ vm.swappiness = 10
     password_expire_min: 0
 ```
 
-#### Group:
+##### Group:
 
 Взаимодействие с группами
 
@@ -790,7 +1075,7 @@ vm.swappiness = 10
     state: absent
 ```
 
-#### Authorized_key:
+##### Authorized_key:
 
 Добавление SSH-ключей пользователю.
 
@@ -848,9 +1133,9 @@ vm.swappiness = 10
 ```
 
 
-### Сеть и загрузка файлов:
+#### Сеть и загрузка файлов:
 
-#### Get_url:
+##### Get_url:
 
 Скачивание файла из интернета (HTTP/HTTPS/FTP). Аналог `wget`/`curl`.
 
@@ -902,7 +1187,7 @@ vm.swappiness = 10
     mode: '0755'
 ```
 
-#### Uri:
+##### Uri:
 
 Выполнение произвольных HTTP/HTTPS запросов. Идеален для проверки API, веб-хуков, получения токенов.
 
@@ -971,7 +1256,7 @@ vm.swappiness = 10
     status_code: 200
 ```
 
-#### Wait_for:
+##### Wait_for:
 
 Приостановить выполнение плейбука до наступления условия (порт открыт, файл появился, процесс запущен).
 
@@ -1018,7 +1303,7 @@ vm.swappiness = 10
     timeout: 30
 ```
 
-#### iptables / ufw:
+##### iptables / ufw:
 
 Управление фаерволами.
 - `ufw`: Проще, удобнее для Ubuntu/Debian.
@@ -1081,7 +1366,7 @@ vm.swappiness = 10
   # Лучше использовать модуль copy/template для файла rules.v4, но это быстрый способ
 ```
 
-#### Hostname:
+##### Hostname:
 
 Изменение имени хоста.
 
@@ -1116,7 +1401,7 @@ vm.swappiness = 10
 
 Чтобы команда `hostname` внутри сервера работала корректно, нужно добавить запись в hosts.
 
-#### Getent:
+##### Getent:
 
 Поиск в системных базах данных. Полезен для получения IP по имени хоста или проверки существования пользователя/группы без выполнения команд shell.
 
@@ -1132,7 +1417,7 @@ vm.swappiness = 10
     var: getent_hosts['gateway.local']
 ```
 
-#### Sysctl:
+##### Sysctl:
 
 Настройка параметров ядра сети. Настройка TCP/IP стека (например, включение IP forwarding для роутера/NAT).
 
@@ -1152,9 +1437,9 @@ vm.swappiness = 10
     reload: yes
 ```
 
-### Отладка и логика:
+#### Отладка и логика:
 
-#### Debug:
+##### Debug:
 
 Вывод сообщений или переменных на экран.
 
@@ -1204,7 +1489,7 @@ vm.swappiness = 10
     user_info: "{{ ansible_user_id }}" # Пример использования факта
 ```
 
-#### Set_fact:
+##### Set_fact:
 
 Создание или изменение переменной прямо во время выполнения плейбука. Эта переменная становится доступной всем последующим задачам на этом хосте.
 
@@ -1261,7 +1546,7 @@ vm.swappiness = 10
   when: ansible_os_family == "RedHat"
 ```
 
-#### Assert:
+##### Assert:
 
 Проверка условий ("гарды"). Если условие ложно (`false`), плейбук останавливается с ошибкой. Идеально для валидации входных данных перед началом работы.
 
@@ -1299,7 +1584,7 @@ vm.swappiness = 10
     fail_msg: "Порт {{ app_port }} недопустим. Должен быть между 1024 и 65535."
 ```
 
-#### Fail:
+##### Fail:
 
 Принудительная остановка плейбука с сообщением об ошибке. В отличие от `assert`, который проверяет условие, `fail` всегда останавливает выполнение (если не обернут в условие `when`).
 
@@ -1342,7 +1627,7 @@ vm.swappiness = 10
   when: db_conn.failed
 ```
 
-#### Pause:
+##### Pause:
 
 Приостановка выполнения. Полезно для ручного подтверждения опасных действий или ожидания внешнего процесса.
 
@@ -1386,3 +1671,134 @@ vm.swappiness = 10
     echo: no # Скрыть ввод пользователя (если бы мы ждали ввод текста)
 ```
 
+### Полезные возможности и нюансы при работе с playbook-ами:
+
+### Идемпотентность: `command`/`shell` vs Модули:
+
+- **Модули (`apt`, `user`, `file`)**: Сначала проверяют состояние системы.
+    - _Пример:_ `apt: name=nginx state=present`. Ansible спрашивает: «Nginx установлен?». Если да — задача помечается как `ok` (зеленая) и ничего не делает. Если нет — `changed` (желтая) и устанавливает.
+- **Команды (`command`, `shell`)**: Просто выполняют команду.
+    - _Пример:_ `command: apt install nginx`. При каждом запуске Ansible будет выполнять команду. `apt` может сказать «уже установлено», но для Ansible задача всегда будет `changed` (или даже ошибкой, если команда возвращает код ошибки при повторном запуске).
+
+**Как сделать команду идемпотентной?** Если готового модуля нет, используйте условия `creates`, `removes` или `changed_when`:
+
+* **`creates` / `removes`**. Задача выполнится только если файл отсутствует (или существует):
+
+```yaml
+- name: Создать файл флага только если его нет
+  command: touch /opt/app/init_done.flag
+  args:
+    creates: /opt/app/init_done.flag1  # Запускать, если файла нету
+    removes: /opt/app/init_done.flag2  # Запускать, если файл есть
+```
+
+* **`changed_when`**. Явно скажите Ansible, когда считать задачу изменением:
+
+	```yaml
+	- name: Обновить базу данных
+  command: ./update_db.sh
+  register: db_result
+  changed_when: "'Database updated' in db_result.stdout" # Только если в выводе есть эта фраза
+	```
+
+Всегда ищите готовый модуль перед использованием `command`. Используйте `command` только в крайнем случае.
+
+### Опасность модуля `shell` и переменных окружения:
+
+Модуль `shell` запускает команды через оболочку (`/bin/sh`), что позволяет использовать пайпы (`|`), перенаправление (`>`) и переменные среды. Но тут есть ловушка.
+
+- **Проблема:** По умолчанию Ansible сбрасывает большинство переменных окружения ради безопасности и предсказуемости. Переменная `$PATH` может быть урезана, `$HOME` может отличаться от ожидаемого.
+- **Решение:** Явно задавайте путь к командам или используйте `executable`.
+
+```yaml
+# Плохо: может не найти команду, если её нет в стандартном PATH
+- name: Запустить мой скрипт
+  shell: my_custom_script.sh
+
+# Хорошо: полный путь
+- name: Запустить мой скрипт
+  command: /usr/local/bin/my_custom_script.sh
+
+# Или явно указать оболочку и подгрузить профиль
+- name: Запустить с профилем пользователя
+  shell: source ~/.bashrc && my_custom_script.sh
+  args:
+    executable: /bin/bash
+```
+
+### Игнорирование ошибок:
+
+По умолчанию, если любая задача падает с ошибкой, выполнение плейбука на этом хосте **прекращается**. Иногда ошибка допустима (например, попытка остановить сервис, которого нет).
+
+```yaml
+- name: Остановить старый сервис (если есть)
+  service:
+    name: old_service
+    state: stopped
+  ignore_errors: yes  # Продолжить выполнение следующих задач даже при ошибке
+```
+
+_Нюанс:_ Задача пометится как красная (`failed`), но плейбук пойдет дальше.
+
+### Принудительное продолжение (`force_handlers`):
+
+Обычно, если задача падает, накопленные уведомления (`notify`) не срабатывают. Флаг `force_handlers` заставляет их выполниться даже при ошибке.
+
+```yaml
+- hosts: all
+  force_handlers: true # Запустить хендлеры даже если задачи выше упали
+  tasks: ...
+```
+
+### Блоки `block` / `rescue` / `always` (Аналог try/catch):
+
+Это мощный механизм обработки исключений.
+
+```yaml
+tasks:
+  - block:
+      - name: Попытка обновить приложение
+        command: ./risky_update.sh
+      
+      - name: Перезапустить сервис
+        service: name=myapp state=restarted
+    
+    rescue:
+      - name: Откат изменений при ошибке
+        command: ./rollback.sh
+      
+      - name: Отправить алерт админу
+        mail:
+          to: admin@example.com
+          subject: "Update Failed on {{ inventory_hostname }}"
+    
+    always:
+      - name: Записать лог завершения (выполнится в любом случае)
+        lineinfile:
+          path: /var/log/deploy.log
+          line: "Deployment attempt finished at {{ ansible_date_time.iso8601 }}"
+```
+
+### Производительность: `strategy` и `forks`:
+
+По умолчанию Ansible использует стратегию `linear`:
+
+1. Выполнить задачу 1 на **всех** хостах.
+2. Дождаться окончания на всех.
+3. Выполнить задачу 2 на **всех** хостах.
+
+**Проблема:** Если один хост медленный, все остальные ждут его.
+
+**Решение 1: Увеличить `forks`** В `ansible.cfg` поставьте `forks = 20` (по умолчанию 5). Это позволит обрабатывать больше хостов параллельно.
+
+**Решение 2: Стратегия `free`** Позволяет хостам работать независимо. Быстрые хосты не ждут медленных.
+
+```yaml
+- hosts: all
+  strategy: free  # Каждый хост выполняет задачи в своем темпе
+  tasks:
+    - name: Долгая задача
+      command: sleep 10
+```
+
+_Нюанс:_ Порядок выполнения задач между разными хостами больше не синхронизирован. Это может быть проблемой, если задачи зависят друг от друга глобально.
