@@ -1103,11 +1103,156 @@ vm.swappiness = 10
 
 ##### Управление сервисами и процессами:
 
-**service** - Универсальное управление сервисами (SysV, Upstart, systemd).
+* **service** - Универсальное управление сервисами (SysV, Upstart, systemd). Ansible сам определяет, какая система инициализации используется (systemd, SysVinit, Upstart), и вызывает нужную команду.
 
-**systemd** - Прямое управление `systemctl`. Дает больше контроля (например, просмотр логов юнита).
+**Запуск сервиса и добавление в автозагрузку:**
 
-**command / shell** - Запуск произвольных команд. Использовать только если нет спец. модуля.
+```yaml
+- name: Убедиться, что Nginx запущен и в автозагрузке
+  service:
+    name: nginx
+    state: started       # started, stopped, restarted, reloaded
+    enabled: yes         # Добавить в автозагрузку (analog systemctl enable)
+```
+
+**Перезагрузка сервиса (Restart):**
+
+```yaml
+- name: Перезапустить SSH при изменении конфига
+  service:
+    name: sshd
+    state: restarted
+  # Примечание: Будьте осторожны при удаленном подключении! 
+  # Лучше использовать 'reloaded', если конфиг позволяет.
+```
+
+**Мягкая перезагрузка (Reload):**
+
+```yaml
+- name: Применить новые настройки Nginx без разрыва соединений
+  service:
+    name: nginx
+    state: reloaded
+```
+
+**Остановка сервиса и удаление из автозагрузки:**
+
+```yaml
+- name: Отключить и остановить старый сервис Telnet
+  service:
+    name: telnetd
+    state: stopped
+    enabled: no
+```
+
+**Проверка статуса (через register):**
+
+Модуль `service` возвращает статус в переменную, если использовать `register`.
+
+```yaml
+- name: Проверить статус Docker
+  service:
+    name: docker
+  register: docker_status
+
+- name: Вывести состояние сервиса
+  debug:
+    msg: "Docker is {{ docker_status.status.ActiveState }}"
+  when: docker_status.status is defined
+```
+
+
+
+* **systemd** - Прямое управление `systemctl`. Дает больше контроля (например, просмотр логов юнита).
+
+**Применение изменений в юнит-файлах (Daemon Reload):**
+
+Если вы изменили файл `.service` в `/etc/systemd/system/`, нужно сообщить systemd об изменениях перед рестартом.
+
+```yaml
+- name: Обновить список юнитов systemd после изменения файлов
+  systemd:
+    daemon_reload: yes   # Выполняет systemctl daemon-reload
+```
+
+**Комплексное управление (Enable + Start + Reload):**
+
+```yaml
+- name: Развернуть кастомный сервис myapp
+  systemd:
+    name: myapp
+    enabled: yes
+    state: restarted
+    daemon_reload: yes   # Можно объединить в одной задаче!
+```
+
+**Получение статуса и логов (Debug):**
+
+```yaml
+- name: Получить полную информацию о сервисе PostgreSQL
+  systemd:
+    name: postgresql
+  register: pg_info
+
+- name: Вывести статус и последние логи
+  debug:
+    msg: |
+      Status: {{ pg_info.unit.ActiveState }}
+      SubStatus: {{ pg_info.unit.SubState }}
+      Recent Logs: {{ pg_info.unit.StatusText }}
+```
+
+**Маскировка сервиса (Mask):**
+
+Запрещает запуск сервиса даже вручную (создает симлинк на `/dev/null`). Полезно для конфликтовующих сервисов (например, `firewalld` vs `ufw`).
+
+```yaml
+- name: Навсегда запретить запуск firewalld
+  systemd:
+    name: firewalld
+    masked: yes
+    state: stopped
+```
+
+* **command / shell** - Запуск произвольных команд. Использовать только если нет спец. модуля. 
+	- **`command`**: Запускает команду напрямую, без оболочки. Безопаснее, но нельзя использовать пайпы (`|`), перенаправление (`>`, `>>`), переменные среды `$VAR`;
+	- **`shell`**: Запускает команду через `/bin/sh`. Позволяет использовать всю мощь шелла (пайпы, редиректы), но менее безопасен.
+
+Используйте только если нет готового модуля (`service`, `yum`, `user` и т.д.). Команды по умолчанию **не идемпотентны** (выполняются каждый раз).
+
+**Простая команда без шелла (`command`):**
+
+```yaml
+- name: Проверить версию ядра
+  command: uname -r
+  register: kernel_version
+
+- name: Вывести версию ядра
+  debug:
+    var: kernel_version.stdout
+```
+
+**Сложная команда с пайпами (`shell`):**
+
+```yaml
+- name: Посчитать количество процессов nginx
+  shell: ps aux | grep nginx | grep -v grep | wc -l
+  register: nginx_count
+  changed_when: false # Эта команда ничего не меняет в системе, поэтому всегда ok
+```
+
+**Изменение переменных окружения:**
+
+```yaml
+- name: Запустить скрипт с конкретной переменной окружения
+  shell: source /etc/profile && ./deploy.sh
+  args:
+    chdir: /opt/app/deploy
+    executable: /bin/bash
+  environment:
+    APP_ENV: production
+    DB_HOST: 192.168.1.50
+```
 
 ##### Пользователи и группы:
 
