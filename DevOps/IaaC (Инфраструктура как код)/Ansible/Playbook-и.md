@@ -182,6 +182,206 @@ ansible-playbook -i inventory/hosts.ini site.yml
     DEPLOY_ENV: "{{ DEPLOY_ENV }}"
 ```
 
+### Lookup плагины:
+
+В Ansible **Lookup Plugins** (плагины поиска) — это мощный механизм, который позволяет получать данные из внешних источников **во время выполнения плейбука**, но **на машине управления (Control Node)**, а не на удаленном сервере.
+- Модули (`copy`, `template`, `command`) выполняются на **удаленном сервере**.
+- Lookup-плагины выполняются на **вашем компьютере** (где запущен `ansible-playbook`) и передают результат в задачу как переменную.
+
+Синтаксис: `{{ lookup('тип', 'аргументы') }}`
+
+**Разница между `lookup`, `query` и `q`**
+
+Вы можете заметить три разных названия для одного и того же механизма:
+
+1. `{{ lookup('...', ...) }}` — Возвращает **одно значение** (строку). Если плагин вернул список, вы получите только первый элемент или строковое представление;
+2. `{{ query('...', ...) }}` — Возвращает **список**. Идеально для использования в циклах `loop`;
+3.  `{{ q('...', ...) }}` — Короткий алиас для `query`.
+
+```yaml
+# lookup вернет только первую строку (или ошибку, если строк много)
+- debug: msg="{{ lookup('lines', 'list.txt') }}" 
+
+# query вернет список всех строк, что правильно для цикла
+- debug: msg="{{ item }}"
+  loop: "{{ query('lines', 'list.txt') }}"
+```
+
+#### Работа с файлами и строками:
+
+`file` — Чтение содержимого файла. Читает файл с машины управления и возвращает его содержимое одной строкой. Идеально для SSH-ключей, сертификатов, токенов.
+
+```yaml
+tasks:
+  - name: Добавить публичный SSH ключ пользователя
+    authorized_key:
+      user: deployer
+      key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+      # Читает файл ~/.ssh/id_rsa.pub на машине, где запущен ansible
+
+  - name: Вставить лицензионный ключ в конфиг
+    copy:
+      content: |
+        license_key={{ lookup('file', './secrets/license.txt') }}
+      dest: /etc/app/config.ini
+```
+
+`lines` — Чтение файла построчно. Возвращает список строк из файла. Удобно для циклов.
+
+```yaml
+tasks:
+  - name: Создать пользователей из списка в файле
+    user:
+      name: "{{ item }}"
+      state: present
+    loop: "{{ lookup('lines', './users_list.txt').splitlines() }}"
+    # Файл users_list.txt содержит имена по одному в строке
+```
+
+`csvfile` — Чтение данных из CSV. Позволяет искать значения в CSV-файле по ключу.
+
+```cvs
+hostname,ip,role
+web01,192.168.1.10,frontend
+db01,192.168.1.20,master
+```
+
+```yaml
+tasks:
+  - name: Получить IP для web01 из CSV
+    debug:
+      msg: "IP адрес: {{ lookup('csvfile', 'web01 file=servers.csv delimiter=, col=1') }}"
+    # col=0 -> hostname, col=1 -> ip, col=2 -> role
+```
+
+#### Переменные окружения и секреты:
+
+`env` — Чтение переменных окружения. Безопасный способ передать конфигурацию из CI/CD системы (Jenkins, GitLab CI) без хардкода.
+
+```yaml
+tasks:
+  - name: Использовать токен из переменной окружения
+    uri:
+      url: https://api.github.com/user
+      headers:
+        Authorization: "token {{ lookup('env', 'GITHUB_TOKEN') }}"
+      # Берет переменную $GITHUB_TOKEN с машины запуска
+```
+
+`ini` — Чтение из INI файлов. Полезно для чтения старых конфигов или файлов свойств.
+
+```yaml
+tasks:
+  - name: Прочитать порт из my.cnf
+    debug:
+      msg: "MySQL порт: {{ lookup('ini', 'port section=mysqld file=/etc/my.cnf') }}"
+```
+
+#### Генерация данных и криптография:
+
+`password` — Генерация случайных паролей. Генерирует безопасный случайный пароль при каждом запуске (если не использовать хеш-файл). _Фишка:_ Если указать параметр `encrypt`, он сразу вернет хеш, готовый для модуля `user`.
+
+```yaml
+tasks:
+  - name: Создать пользователя со случайным паролем
+    user:
+      name: new_user
+      # Генерирует хеш SHA512 случайного пароля длиной 16 символов
+      password: "{{ lookup('password', '/dev/null length=16 chars=ascii_letters,digits encrypt=sha512_crypt') }}"
+    
+    # Примечание: '/dev/null' используется как заглука, чтобы пароль не сохранялся в файл на диске контроллера.
+    # Если хотите сохранить пароль локально, укажите путь к файлу вместо /dev/null.
+```
+
+`random_choice` — Случайный выбор из списка. Полезно для балансировки нагрузки или выбора случайного зеркала.
+
+```yaml
+tasks:
+  - name: Выбрать случайное зеркало для загрузки
+    set_fact:
+      mirror_url: "{{ lookup('random_choice', 'http://mir1.example.com', 'http://mir2.example.com', 'http://mir3.example.com') }}"
+  
+  - name: Скачать пакет с выбранного зеркала
+    get_url:
+      url: "{{ mirror_url }}/package.tar.gz"
+      dest: /tmp/
+```
+
+#### Сеть и внешние API:
+
+`url` — Загрузка данных по HTTP/HTTPS. Позволяет получить контент URL и использовать его как переменную (например, версию последней релиза).
+
+```yaml
+tasks:
+  - name: Узнать последнюю версию Terraform
+    set_fact:
+      latest_version: "{{ lookup('url', 'https://checkpoint-api.hashicorp.com/v1/check/terraform', split_lines=False) | from_json | json_query('current_version') }}"
+      
+  - name: Вывести версию
+    debug:
+      var: latest_version
+```
+
+
+`dnstxt`, `dnsrev`, `dig` — DNS запросы. Позволяют делать DNS-запросы прямо из плейбука.
+
+```yaml
+tasks:
+  - name: Получить TXT запись для домена (проверка владения)
+    debug:
+      msg: "TXT запись: {{ lookup('dnstxt', 'example.com') }}"
+
+  - name: Получить IP по имени (A запись)
+    debug:
+      msg: "IP адреса: {{ lookup('dig', 'google.com') }}"
+```
+
+#### Продвинутые и специфические плагины:
+
+`sequence` — Генерация числовой последовательности. Аналог команды `seq`. Полезно для генерации имен хостов или ID.
+
+```yaml
+tasks:
+  - name: Создать тестовых пользователей от 1 до 5
+    user:
+      name: "test_user_{{ item }}"
+      state: present
+    loop: "{{ query('sequence', 'start=1 end=5 stride=1') }}"
+    # query - это алиас для lookup, часто используется в циклах
+```
+
+`subelements` — Проход по вложенным спискам. Если у вас есть сложная структура данных (словарь со списком внутри), этот плагин позволяет "расплющить" её для цикла.
+
+_Переменная:_
+
+```yaml
+users:
+  - name: alice
+    groups: [sudo, docker]
+  - name: bob
+    groups: [docker]
+```
+
+```yaml
+tasks:
+  - name: Добавить пользователей во все их группы
+    user:
+      name: "{{ item.0.name }}"
+      groups: "{{ item.1 }}"
+      append: yes
+    loop: "{{ query('subelements', users, 'groups') }}"
+    # item.0 = весь пользователь (словарь), item.1 = текущая группа из списка
+```
+
+`pipe` — Выполнение команды на контроллере. Выполняет команду на машине управления и возвращает вывод.
+
+```yaml
+tasks:
+  - name: Получить имя текущей ветки git на контроллере
+    debug:
+      msg: "Деплой из ветки: {{ lookup('pipe', 'git rev-parse --abbrev-ref HEAD') }}"
+```
+
 ### Основные модули:
 
 #### Управление пакетами (Package Management):
