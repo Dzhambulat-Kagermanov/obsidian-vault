@@ -42,289 +42,144 @@ ansible-playbook -i inventory/hosts.ini site.yml
 2. Выполнит задачу 1: проверит, стоит ли nginx. Если нет — установит. Если есть — ничего не сделает (идемпотентность).
 3. Выполнит задачу 2: проверит статус сервиса. Если не запущен — запустит.
 
-### Циклы (Loops):
+### Ключевые параметры:
 
-Циклы позволяют выполнять одну и ту же задачу несколько раз с разными параметрами.
+В Ansible у каждой задачи (task) есть набор ключевых параметров, которые управляют её поведением, выводом и логикой.
 
-#### Простой цикл (`loop`):
+#### name (Имя задачи):
 
-```yaml
-tasks:
-  - name: Установить набор пакетов
-    apt:
-      name: "{{ item }}"
-      state: present
-    loop:
-      - nginx
-      - postgresql
-      - redis
-      - python3-pip
-    # item — это специальная переменная, содержащая текущее значение списка
-```
+* **Тип:** Строка (String);
+* **Обязательно:** Нет (но **настоятельно рекомендуется**);
 
-#### Цикл по словарям (Dictionaries):
+Это текстовое описание задачи, которое выводится в консоль при выполнении.
+**Зачем нужно:** Без имени Ansible выводит только название модуля (например, `apt`), что делает логи нечитаемыми. Хорошее имя отвечает на вопрос «Что мы делаем?».
 
-```yaml
-tasks:
-  - name: Создать пользователей с настройками
-    user:
-      name: "{{ item.name }}"
-      groups: "{{ item.groups }}"
-      shell: "{{ item.shell }}"
-      create_home: yes
-    loop:
-      - { name: 'alice', groups: 'sudo,developers', shell: '/bin/bash' }
-      - { name: 'bob', groups: 'developers', shell: '/bin/zsh' }
-      - { name: 'charlie', groups: 'guests', shell: '/bin/false' }
-```
+#### state (Параметры состояния):
 
-_Альтернативный синтаксис (более читаемый для сложных структур):_
+* **Тип:** Строка;
+* **Где используется:** Внутри аргументов модуля (например, `apt`, `file`, `service`).
+
+Это не свойство самой задачи, а параметр, передаваемый модулю. Самый частый вариант — **`present`**.
+
+Основные значения `state`:
+- **`present`**: Гарантировать, что объект существует.
+	- Для пакетов (`apt`/`yum`): Установить, если нет. Если есть — ничего не делать.
+	- Для файлов (`file`): Создать файл (пустой) или убедиться, что он есть.
+	- _Аналог:_ `ensure => installed` в других инструментах.
+- **`absent`**: Гарантировать, что объекта **нет**.
+	- Для пакетов: Удалить.
+	- Для файлов/директорий: Удалить файл или папку.
+	- Для пользователей: Удалить пользователя.
+- **`started` / `stopped`**: Для модуля `service`. Запустить или остановить сервис.
+- **`restarted` / `reloaded`**: Перезапустить или перечитать конфиг сервиса.
+- **`latest`**: (Только для пакетов) Установить последнюю доступную версию (обновить, если есть новая).
+
+**Пример использования:**
 
 ```yaml
-    loop:
-      - name: alice
-        groups: sudo,developers
-        shell: /bin/bash
-      - name: bob
-        groups: developers
-        shell: /bin/zsh
+- name: Убедиться, что пакет установлен
+  apt:
+    name: nginx
+    state: present  # <--- Свойство состояния
+
+- name: Удалить старый конфиг
+  file:
+    path: /etc/old_config
+    state: absent   # <--- Свойство удаления
 ```
 
-#### Цикл с нумерацией (`loop_control` + `index_var`):
+#### register (Регистрация результата):
+
+* **Тип:** Имя переменной (String);
+* **Обязательно:** Нет.
+
+ Сохраняет результат выполнения задачи в переменную для использования в следующих задачах. Это мощный инструмент для получения обратной связи от системы.
+ 
+**Что сохраняется:** Объект со множеством полей:
+- `.changed`: (Boolean) Изменилось ли что-то?
+- `.failed`: (Boolean) Произошла ли ошибка?
+- `.rc`: (Integer) Код возврата команды (0 = успех).
+- `.stdout` / `.stderr`: (String) Вывод команды (для модулей `command`/`shell`).
+- `.msg`: (String) Сообщение об ошибке или успехе.
+
+**Пример использования:**
 
 ```yaml
-tasks:
-  - name: Создать конфиги для воркеров
-    template:
-      src: worker.conf.j2
-      dest: "/etc/app/worker_{{ item.index }}.conf"
-    loop: "{{ range(1, 5) | list }}" # Генерирует список [1, 2, 3, 4]
-    loop_control:
-      index_var: idx # Имя переменной для индекса (по умолчанию item)
-      label: "Worker {{ idx }}" # Как показывать в выводе (чтобы не спамить числами)
-    
-    # Внутри задачи используем {{ idx }} или {{ item }} (которое равно числу)
+- name: Проверить наличие файла
+  stat:
+    path: /var/log/app.log
+  register: log_file_status  # <--- Сохраняем результат в переменную
+
+- name: Создать файл, если его нет
+  file:
+    path: /var/log/app.log
+    state: touch
+  when: not log_file_status.stat.exists # <--- Используем поле из зарегистрированной переменной
 ```
 
-#### Цикл по файлам или результатам команд:
+#### become и связанные (Права доступа):
+
+* **Тип:** Boolean / String;
+* **Обязательно:** Нет.
+
+Управляет повышением привилегий (обычно до root через `sudo`).
+
+- **`become: yes`**: Включить повышение прав для этой задачи.
+- **`become_user: username`**: От имени какого пользователя выполнять (по умолчанию `root`).
+- **`become_method: sudo`**: Метод повышения (sudo, su, pbrun и т.д.).
+- **`become_flags`**: Дополнительные флаги (например, `-H` для home dir).
+
+**Пример использования:**
 
 ```yaml
-tasks:
-  # 1. Найти все логи старше 7 дней
-  - name: Найти старые логи
-    find:
-      paths: /var/log/myapp
-      patterns: "*.log"
-      age: 7d
-    register: old_logs
-
-  # 2. Удалить найденные файлы
-  - name: Удалить старые логи
-    file:
-      path: "{{ item.path }}"
-      state: absent
-    loop: "{{ old_logs.files }}"
-    when: old_logs.matched > 0 # Защита от ошибки, если ничего не найдено
+- name: Write to system directory
+  copy:
+    content: "data"
+    dest: /etc/myapp/config
+  become: yes           # <--- Выполнить как root
+  become_user: root     # (можно опустить, это дефолт)
 ```
 
+#### ignore_errors и failed_when (Обработка ошибок)
 
-### Условия (Conditionals):
+* **Тип:** Boolean / Выражение;
+* **Обязательно:** Нет.
 
-Условие `when` позволяет выполнить задачу только если выражение истинно (`true`).
+Контролируют поведение при сбоях.
 
-#### Базовые сравнения
+- **`ignore_errors: yes`**: Если задача упадет, не останавливать весь плейбук, а перейти к следующей. Статус задачи будет `failed`, но выполнение продолжится.
+- **`failed_when: expression`**: Явно указать, когда задача считается проваленной. Переопределяет стандартное поведение модуля.
+
+**Пример использования:**
 
 ```yaml
-tasks:
-  - name: Установить Apache только на CentOS/RedHat
-    yum:
-      name: httpd
-      state: present
-    when: ansible_os_family == "RedHat"
+- name: Stop old service (might not exist)
+  service:
+    name: legacy-app
+    state: stopped
+  ignore_errors: yes # <--- Не падать, если сервиса нет
 
-  - name: Установить Nginx только на Debian/Ubuntu
-    apt:
-      name: nginx
-      state: present
-    when: ansible_os_family == "Debian"
-
-  - name: Настроить большой объем памяти
-    lineinfile:
-      path: /etc/sysctl.conf
-      line: "vm.swappiness=10"
-    when: ansible_memtotal_mb > 8192 # Если ОЗУ > 8 ГБ
+- name: Check disk space
+  shell: df / | tail -1 | awk '{print $5}' | sed 's/%//'
+  register: disk_usage
+  failed_when: disk_usage.stdout | int > 90 # <--- Считать ошибкой, если занято > 90%
 ```
 
-#### Логические операторы (`and`, `or`, `not`):
+#### vars (Локальные переменные):
+
+* **Тип:** Словарь;
+* **Обязательно:** Нет.
+
+Определяет переменные, видимые **только внутри этой конкретной задачи**. Имеют высокий приоритет.
 
 ```yaml
-tasks:
-  - name: Обновить ядро только на Production Ubuntu 22.04
-    apt:
-      name: linux-generic
-      state: latest
-    when: 
-      - env_type == "production"
-      - ansible_distribution == "Ubuntu"
-      - ansible_distribution_version == "22.04"
-      # Все условия должны быть true (логическое И)
-
-  - name: Отправить алерт при ошибке или критической загрузке
-    mail:
-      subject: "Alert on {{ inventory_hostname }}"
-    when: task_failed == true or load_average > 5.0
-```
-
-#### Проверка существования переменных:
-
-```yaml
-tasks:
-  - name: Настроить доп. диск, если переменная задана
-    mount:
-      path: /data
-      src: "{{ data_disk_device }}"
-      fstype: ext4
-      state: mounted
-    when: data_disk_device is defined
-
-  - name: Запустить скрипт, если он есть
-    command: /opt/scripts/custom_init.sh
-    when: custom_script_path is defined and custom_script_path != ""
-```
-
-#### Регулярные выражения в условиях:
-
-```yaml
-tasks:
-  - name: Выполнить только если имя хоста начинается с 'web'
-    debug:
-      msg: "Это веб-сервер"
-    when: inventory_hostname is match("web.*")
-
-  - name: Выполнить если версия содержит 'beta'
-    command: ./run_beta_tests.sh
-    when: app_version is search("beta")
-```
-
-#### Обработка ошибок в условиях:
-
-```yaml
-tasks:
-  - name: Попытаться остановить старый сервис
-    service:
-      name: legacy-app
-      state: stopped
-    register: stop_result
-    ignore_errors: yes # Не останавливать плейбук при ошибке
-
-  - name: Записать лог, если сервис не удалось остановить
-    lineinfile:
-      path: /var/log/cleanup.log
-      line: "Failed to stop legacy-app on {{ ansible_date_time.iso8601 }}"
-    when: stop_result.failed
-```
-
-#### Комбинация Циклов и Условий:
-
-```yaml
-vars:
-  services_to_manage:
-    - name: nginx
-      enabled: true
-      state: started
-    - name: mysql
-      enabled: false # Мы хотим его отключить
-      state: stopped
-    - name: redis
-      enabled: true
-      state: started
-
-tasks:
-  - name: Управление сервисами
-    service:
-      name: "{{ item.name }}"
-      enabled: "{{ item.enabled }}"
-      state: "{{ item.state }}"
-    loop: "{{ services_to_manage }}"
-    when: item.enabled == true or item.state == 'started' 
-    # Пример условия: делаем что-то, если сервис должен быть включен ИЛИ запущен
-```
-
-> Условие `when` применяется ко **всей задаче** для конкретного элемента цикла. Если условие ложно, этот элемент пропускается, но цикл продолжается для следующих элементов.
-
-### Полезные флаги для запуска playbook-а:
-
-**`--check` (Dry Run)** - показывает, что _изменилось бы_, но не вносит изменений.
-
-```bash
-ansible-playbook deploy_app.yml --check
-```
-
-**`--diff`** - показывает разницу (diff) в файлах, которые изменятся (работает с `--check`).
-
-```bash
-ansible-playbook deploy_app.yml --check --diff
-```
-
-**`--limit`** - запустить только на конкретном хосте или группе, даже если в плейбуке указано `hosts: all`.
-
-```bash
-ansible-playbook deploy_app.yml --limit web01
-```
-
-**`--syntax-check`** - проверка синтаксиса.
-
-```bash
-ansible-playbook site.yml --syntax-check
-```
-
-**`--start-at-task`** - начать выполнение не с начала, а с конкретной задачи (удобно при отладке ошибок в середине).
-
-```bash
-ansible-playbook deploy_app.yml --start-at-task "Создание пользователя приложения"
-```
-
-**`-v`, `-vv`, `-vvv`, `-vvvv`, `-vvvvv`** - режимы отладки (verbosity). Показывают больше деталей о подключении и переменных.
-
-```bash
-ansible-playbook deploy_app.yml -vvv
-```
-
-### Тегирование задач:
-
-Теги позволяют запускать только часть плейбука.
-
-```yaml
-tasks:
-  - name: Установить пакеты
-    apt: ...
-    tags: [packages, base]
-
-  - name: Настроить конфиг
-    template: ...
-    tags: [config, web]
-
-  - name: Перезапустить сервис
-    service: ...
-    tags: [restart, web]
-```
-
-**Только установка:**
-
-```bash
-ansible-playbook site.yml --tags packages
-```
-
-**Всё кроме перезапуска:**
-
-```bash
-ansible-playbook site.yml --skip-tags restart
-```
-
-**Показать список тегов:**
-
-```bash
-ansible-playbook site.yml --list-tags
+- name: Run script with specific env
+  command: ./deploy.sh
+  vars:
+    DEPLOY_ENV: production
+    DB_HOST: 127.0.0.1
+  environment: # Передача в окружение процесса
+    DEPLOY_ENV: "{{ DEPLOY_ENV }}"
 ```
 
 ### Основные модули:
@@ -398,6 +253,71 @@ ansible-playbook site.yml --list-tags
 ```
 
 #### Управление файлами и директориями:
+
+##### Find:
+
+Поиск файлов и директорий по различным критериям (имя, размер, возраст, права). Возвращает список найденных путей, который удобно использовать в циклах для последующей обработки (удаление, архивация, изменение прав).
+
+**Поиск файлов по возрасту (для очистки логов):**
+
+```yaml
+- name: Найти лог-файлы старше 7 дней
+  find:
+    paths: /var/log/myapp
+    patterns: "*.log"
+    age: 7d          # Старше 7 дней (можно использовать +7d, -7d)
+    recurse: yes     # Искать в поддиректориях
+  register: old_logs # Сохраняем результат
+
+- name: Удалить старые логи
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ old_logs.files }}"
+  when: old_logs.matched > 0 # Защита, если ничего не найдено
+```
+
+**Поиск по размеру файла:**
+
+```yaml
+- name: Найти файлы больше 100 МБ
+  find:
+    paths: /home/users
+    patterns: "*.dump"
+    size: +100M      # Больше 100 мегабайт
+    recurse: yes
+  register: large_files
+
+- name: Вывести список больших файлов
+  debug:
+    msg: "Найден большой файл: {{ item.path }}"
+  loop: "{{ large_files.files }}"
+```
+
+**Поиск по типу и исключение паттернов:**
+
+```yaml
+- name: Найти пустые директории (кроме .git)
+  find:
+    paths: /var/www
+    file_type: directory
+    excludes: ".git", "node_modules"
+    hidden: no       # Не искать скрытые файлы
+  register: empty_dirs
+```
+
+**Поиск по содержимому (содержит строку):**
+
+_Примечание:_ `find` сам по себе не ищет внутри файлов, но можно скомбинировать с `grep` через shell или использовать параметр `contains` (работает медленно на больших объемах, так как читает файлы).
+
+```yaml
+- name: Найти конфиги, содержащие устаревший параметр
+  find:
+    paths: /etc/app
+    patterns: "*.conf"
+    contains: "old_deprecated_setting"
+  register: bad_configs
+```
 
 ##### File:
 
@@ -1135,6 +1055,57 @@ vm.swappiness = 10
 
 #### Сеть и загрузка файлов:
 
+##### Mail:
+
+Отправка электронных писем. Полезно для алертов при ошибках, отчетов о завершении деплоя или уведомлений безопасности. 
+
+_Требование:_ На управляющем узле (или целевом, если используется `delegate_to`) должен быть настроен SMTP-сервер или возможность отправки через внешний relay.
+
+**Простое уведомление об успехе/ошибке:**
+
+```yaml
+- name: Отправить алерт при падении плейбука
+  mail:
+    host: smtp.example.com
+    port: 587
+    username: "alerts@example.com"
+    password: "{{ smtp_password }}" # Из vault!
+    to: 
+      - admin@example.com
+      - devops-team@example.com
+    from: "Ansible <ansible@example.com>"
+    subject: "CRITICAL: Deployment Failed on {{ inventory_hostname }}"
+    body: |
+      Плейбук {{ playbook_name }} завершился с ошибкой.
+      Хост: {{ inventory_hostname }}
+      Время: {{ ansible_date_time.iso8601 }}
+      
+      Пожалуйста, проверьте логи.
+    subtype: plain
+  when: failed
+```
+
+**Отправка HTML-отчета:**
+
+```yaml
+- name: Отправить еженедельный отчет в HTML
+  mail:
+    host: smtp.gmail.com
+    port: 465
+    username: "reporter@gmail.com"
+    password: "{{ gmail_app_password }}"
+    to: "manager@company.com"
+    subject: "Weekly Server Status Report"
+    body: |
+      <h1>Статус серверов</h1>
+      <p>Все системы работают нормально.</p>
+      <ul>
+        <li>Web: OK</li>
+        <li>DB: OK</li>
+      </ul>
+    subtype: html
+```
+
 ##### Get_url:
 
 Скачивание файла из интернета (HTTP/HTTPS/FTP). Аналог `wget`/`curl`.
@@ -1671,9 +1642,567 @@ vm.swappiness = 10
     echo: no # Скрыть ввод пользователя (если бы мы ждали ввод текста)
 ```
 
+
+#### Специальные модули:
+
+##### Docker:
+
+Управление контейнерами Docker, образами, сетями и томами. 
+
+_Важно:_ В современных версиях Ansible модули разделены. Основной модуль для управления контейнерами — `docker_container`. Для образов — `docker_image`. Требуется библиотека `docker-py` (`pip install docker`).
+
+**Запуск контейнера (Run):**
+
+```yaml
+- name: Запустить контейнер Nginx
+  docker_container:
+    name: web-server
+    image: nginx:latest
+    state: started
+    restart_policy: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/www/html:/usr/share/nginx/html:ro
+      - nginx-logs:/var/log/nginx
+    env:
+      NGINX_HOST: example.com
+    networks:
+      - name: frontend_net
+```
+
+**Управление образами (Pull / Build):**
+
+```yaml
+- name: Скачать последний образ PostgreSQL
+  docker_image:
+    name: postgres:15
+    source: pull
+    force_source: yes # Всегда тянуть свежий, даже если тег тот же
+
+- name: Собрать образ из Dockerfile
+  docker_image:
+    name: my-app
+    tag: v1.0
+    source: build
+    build:
+      path: /opt/app/src
+      pull: yes
+```
+
+**Очистка старых контейнеров:**
+
+```yaml
+- name: Удалить все остановленные контейнеры
+  docker_container:
+    name: "*"
+    state: absent
+    stopped: yes # Сначала остановить, потом удалить (если нужно)
+    # Осторожно: имя "*" может затронуть много контейнеров, лучше фильтровать
+```
+
+_Более безопасный вариант через поиск:_
+
+```yaml
+- name: Найти остановленные контейнеры моего приложения
+  docker_host_info:
+    containers: true
+  register: docker_info
+
+- name: Удалить конкретные остановленные контейнеры
+  docker_container:
+    name: "{{ item.Names[0] }}"
+    state: absent
+  loop: "{{ docker_info.containers }}"
+  when: 
+    - item.State == 'exited'
+    - item.Image is match('my-app.*')
+```
+
+**Выполнение команды в запущенном контейнере:**
+
+```yaml
+- name: Выполнить миграцию БД внутри контейнера
+  docker_container_exec:
+    container: db-container
+    command: python manage.py migrate
+    register: migration_result
+
+- name: Показать результат миграции
+  debug:
+    var: migration_result.stdout
+```
+
+##### GIT:
+
+Клонирование репозиториев, переключение веток, обновление кода (pull). _Требование:_ На целевом сервере должен быть установлен `git`.
+
+**Клонирование репозитория:**
+
+```yaml
+- name: Склонировать репозиторий приложения
+  git:
+    repo: 'https://github.com/company/my-app.git'
+    dest: /opt/my-app
+    version: main
+    clone: yes
+    update: yes # Если папка есть, сделать git pull
+    force: yes  # Переписать локальные изменения (осторожно!)
+```
+
+**Клонирование с использованием SSH-ключа:**
+
+```yaml
+- name: Склонировать приватный репо через SSH
+  git:
+    repo: 'git@github.com:company/private-repo.git'
+    dest: /opt/private-app
+    version: master
+    accept_hostkey: yes # Автоматически добавить ключ github в known_hosts
+    key_file: /home/deployer/.ssh/id_rsa # Путь к ключу на сервере
+    become: yes
+    become_user: deployer # Выполнять от имени пользователя, у которого есть ключ
+```
+
+**Получение конкретной версии (Tag/Commit):**
+
+```yaml
+- name: Развернуть версию v2.5.0
+  git:
+    repo: 'https://github.com/company/my-app.git'
+    dest: /opt/my-app
+    version: "v2.5.0" # Можно указать хеш коммита или тег
+    force: yes
+  notify: Restart App
+```
+
+
+### Циклы (Loops):
+
+Циклы позволяют выполнять одну и ту же задачу несколько раз с разными параметрами.
+
+#### Простой цикл (`loop`):
+
+```yaml
+tasks:
+  - name: Установить набор пакетов
+    apt:
+      name: "{{ item }}"
+      state: present
+    loop:
+      - nginx
+      - postgresql
+      - redis
+      - python3-pip
+    # item — это специальная переменная, содержащая текущее значение списка
+```
+
+#### Цикл по словарям (Dictionaries):
+
+```yaml
+tasks:
+  - name: Создать пользователей с настройками
+    user:
+      name: "{{ item.name }}"
+      groups: "{{ item.groups }}"
+      shell: "{{ item.shell }}"
+      create_home: yes
+    loop:
+      - { name: 'alice', groups: 'sudo,developers', shell: '/bin/bash' }
+      - { name: 'bob', groups: 'developers', shell: '/bin/zsh' }
+      - { name: 'charlie', groups: 'guests', shell: '/bin/false' }
+```
+
+_Альтернативный синтаксис (более читаемый для сложных структур):_
+
+```yaml
+    loop:
+      - name: alice
+        groups: sudo,developers
+        shell: /bin/bash
+      - name: bob
+        groups: developers
+        shell: /bin/zsh
+```
+
+#### Цикл с нумерацией (`loop_control` + `index_var`):
+
+```yaml
+tasks:
+  - name: Создать конфиги для воркеров
+    template:
+      src: worker.conf.j2
+      dest: "/etc/app/worker_{{ item.index }}.conf"
+    loop: "{{ range(1, 5) | list }}" # Генерирует список [1, 2, 3, 4]
+    loop_control:
+      index_var: idx # Имя переменной для индекса (по умолчанию item)
+      label: "Worker {{ idx }}" # Как показывать в выводе (чтобы не спамить числами)
+    
+    # Внутри задачи используем {{ idx }} или {{ item }} (которое равно числу)
+```
+
+#### Цикл по файлам или результатам команд:
+
+```yaml
+tasks:
+  # 1. Найти все логи старше 7 дней
+  - name: Найти старые логи
+    find:
+      paths: /var/log/myapp
+      patterns: "*.log"
+      age: 7d
+    register: old_logs
+
+  # 2. Удалить найденные файлы
+  - name: Удалить старые логи
+    file:
+      path: "{{ item.path }}"
+      state: absent
+    loop: "{{ old_logs.files }}"
+    when: old_logs.matched > 0 # Защита от ошибки, если ничего не найдено
+```
+
+
+### Условия (Conditionals):
+
+Условие `when` позволяет выполнить задачу только если выражение истинно (`true`).
+
+#### Базовые сравнения
+
+```yaml
+tasks:
+  - name: Установить Apache только на CentOS/RedHat
+    yum:
+      name: httpd
+      state: present
+    when: ansible_os_family == "RedHat"
+
+  - name: Установить Nginx только на Debian/Ubuntu
+    apt:
+      name: nginx
+      state: present
+    when: ansible_os_family == "Debian"
+
+  - name: Настроить большой объем памяти
+    lineinfile:
+      path: /etc/sysctl.conf
+      line: "vm.swappiness=10"
+    when: ansible_memtotal_mb > 8192 # Если ОЗУ > 8 ГБ
+```
+
+#### Логические операторы (`and`, `or`, `not`):
+
+```yaml
+tasks:
+  - name: Обновить ядро только на Production Ubuntu 22.04
+    apt:
+      name: linux-generic
+      state: latest
+    when: 
+      - env_type == "production"
+      - ansible_distribution == "Ubuntu"
+      - ansible_distribution_version == "22.04"
+      # Все условия должны быть true (логическое И)
+
+  - name: Отправить алерт при ошибке или критической загрузке
+    mail:
+      subject: "Alert on {{ inventory_hostname }}"
+    when: task_failed == true or load_average > 5.0
+```
+
+#### Проверка существования переменных:
+
+```yaml
+tasks:
+  - name: Настроить доп. диск, если переменная задана
+    mount:
+      path: /data
+      src: "{{ data_disk_device }}"
+      fstype: ext4
+      state: mounted
+    when: data_disk_device is defined
+
+  - name: Запустить скрипт, если он есть
+    command: /opt/scripts/custom_init.sh
+    when: custom_script_path is defined and custom_script_path != ""
+```
+
+#### Регулярные выражения в условиях:
+
+```yaml
+tasks:
+  - name: Выполнить только если имя хоста начинается с 'web'
+    debug:
+      msg: "Это веб-сервер"
+    when: inventory_hostname is match("web.*")
+
+  - name: Выполнить если версия содержит 'beta'
+    command: ./run_beta_tests.sh
+    when: app_version is search("beta")
+```
+
+#### Обработка ошибок в условиях:
+
+```yaml
+tasks:
+  - name: Попытаться остановить старый сервис
+    service:
+      name: legacy-app
+      state: stopped
+    register: stop_result
+    ignore_errors: yes # Не останавливать плейбук при ошибке
+
+  - name: Записать лог, если сервис не удалось остановить
+    lineinfile:
+      path: /var/log/cleanup.log
+      line: "Failed to stop legacy-app on {{ ansible_date_time.iso8601 }}"
+    when: stop_result.failed
+```
+
+#### Комбинация Циклов и Условий:
+
+```yaml
+vars:
+  services_to_manage:
+    - name: nginx
+      enabled: true
+      state: started
+    - name: mysql
+      enabled: false # Мы хотим его отключить
+      state: stopped
+    - name: redis
+      enabled: true
+      state: started
+
+tasks:
+  - name: Управление сервисами
+    service:
+      name: "{{ item.name }}"
+      enabled: "{{ item.enabled }}"
+      state: "{{ item.state }}"
+    loop: "{{ services_to_manage }}"
+    when: item.enabled == true or item.state == 'started' 
+    # Пример условия: делаем что-то, если сервис должен быть включен ИЛИ запущен
+```
+
+> Условие `when` применяется ко **всей задаче** для конкретного элемента цикла. Если условие ложно, этот элемент пропускается, но цикл продолжается для следующих элементов.
+
+
+### Notify и Handlers:
+
+Это механизм Ansible для реализации паттерна «Реагирование на изменения». Они позволяют выполнять определенные действия (обычно перезапуск сервисов) **только тогда**, когда конфигурация действительно изменилась, и делать это **один раз в конце** выполнения всех задач.
+
+Это критически важно для:
+
+1. **Производительности:** Не перезапускать тяжелый сервис (например, базу данных) 10 раз, если вы обновили 10 конфигов. Перезапуск произойдет один раз в самом конце.
+2. **Безопасности:** Избежать простоя сервиса во время процесса настройки. Сервис работает со старым конфигом до тех пор, пока все изменения не будут внесены, и только потом перезапускается с новым конфигом.
+
+Процесс состоит из двух частей:
+
+1. **Notify (Уведомление):**
+    - Находится внутри обычной задачи (`task`).
+    - Срабатывает **только** если задача вернула статус `changed` (что-то изменилось).
+    - Если задача вернула `ok` (ничего не менялось, было идемпотентно), уведомление **не отправляется**.
+    - Вы указываете **имя** хендлера, который нужно вызвать.
+2. **Handler (Обработчик):**
+    - Это специальная задача, которая лежит в секции `handlers:` в конце плейбука (или роли).
+    - Она **не выполняется** автоматически при прохождении списка задач.
+    - Она выполняется **только** если получила уведомление (`notify`).
+    - Выполняется **после** завершения всех обычных задач в данном `play`.
+
+#### Базовый пример:
+
+```yaml
+---
+- name: Настройка веб-сервера
+  hosts: webservers
+  become: yes
+
+  tasks:
+    - name: Установить Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Разместить конфигурационный файл
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+      notify: Restart Nginx  # <--- ОТПРАВЛЯЕМ УВЕДОМЛЕНИЕ
+      # Хендлер вызовется ТОЛЬКО если этот файл изменился
+
+    - name: Разместить файл приветствия
+      copy:
+        content: "Hello World"
+        dest: /var/www/html/index.html
+      notify: Restart Nginx  # <--- Тоже отправляем уведомление тому же хендлеру
+
+    - name: Какая-то другая задача, не связанная с конфигом
+      debug:
+        msg: "Просто делаем что-то еще..."
+      # Нет notify -> хендлер не вызывается от этой задачи
+
+  handlers:
+    - name: Restart Nginx  # <--- ИМЯ ДОЛЖНО СОВПАДАТЬ С notify
+      service:
+        name: nginx
+        state: restarted
+      # Эта задача выполнится ОДИН РАЗ в конце, если хотя бы одна задача выше отправила notify
+```
+
+#### Несколько уведомлений для одной задачи:
+
+```yaml
+tasks:
+  - name: Обновить конфиг приложения и базы данных
+    template:
+      src: complex_config.j2
+      dest: /etc/app/config.yml
+    notify:
+      - Restart App Service
+      - Reload Database Config
+      - Clear App Cache
+
+handlers:
+  - name: Restart App Service
+    service: name=myapp state=restarted
+
+  - name: Reload Database Config
+    command: pg_ctl reload
+
+  - name: Clear App Cache
+    file: path=/var/cache/myapp state=absent
+```
+
+_Все три хендлера выполнятся в порядке объявления, если задача изменилась._
+
+#### Динамическое имя хендлера (Jinja2):
+
+```yaml
+tasks:
+  - name: Перезапустить конкретный сервис
+    service:
+      name: "{{ service_name }}"
+      state: started
+    notify: "Restart {{ service_name }}" # Имя хендлера формируется на лету
+
+handlers:
+  - name: Restart nginx
+    service: name=nginx state=restarted
+  
+  - name: Restart apache
+    service: name=apache2 state=restarted
+```
+
+#### Мета-хендлер `meta: flush_handlers`:
+
+По умолчанию хендлеры запускаются в самом конце `play`. Но иногда нужно запустить их прямо сейчас (например, чтобы применить конфиг перед следующей задачей, которая зависит от этого сервиса).
+
+```yaml
+tasks:
+  - name: Изменить конфиг SSH
+    lineinfile: ...
+    notify: Restart SSHD
+
+  - name: Принудительно запустить хендлеры ПРЯМО СЕЙЧАС
+    meta: flush_handlers 
+    # Здесь выполнение остановится, запустятся все накопленные хендлеры, и только потом пойдет дальше
+
+  - name: Проверить, что SSH работает на новом порту
+    wait_for:
+      port: 2222
+    # Эта задача выполнится уже после перезапуска SSH
+```
+
+#### Принудительное продолжение (`force_handlers`):
+
+Обычно, если задача падает, накопленные уведомления (`notify`) не срабатывают. Флаг `force_handlers` заставляет их выполниться даже при ошибке.
+
+```yaml
+- hosts: all
+  force_handlers: true # Запустить хендлеры даже если задачи выше упали
+  tasks: ...
+```
+
+### Полезные флаги для запуска playbook-а:
+
+**`--check` (Dry Run)** - показывает, что _изменилось бы_, но не вносит изменений.
+
+```bash
+ansible-playbook deploy_app.yml --check
+```
+
+**`--diff`** - показывает разницу (diff) в файлах, которые изменятся (работает с `--check`).
+
+```bash
+ansible-playbook deploy_app.yml --check --diff
+```
+
+**`--limit`** - запустить только на конкретном хосте или группе, даже если в плейбуке указано `hosts: all`.
+
+```bash
+ansible-playbook deploy_app.yml --limit web01
+```
+
+**`--syntax-check`** - проверка синтаксиса.
+
+```bash
+ansible-playbook site.yml --syntax-check
+```
+
+**`--start-at-task`** - начать выполнение не с начала, а с конкретной задачи (удобно при отладке ошибок в середине).
+
+```bash
+ansible-playbook deploy_app.yml --start-at-task "Создание пользователя приложения"
+```
+
+**`-v`, `-vv`, `-vvv`, `-vvvv`, `-vvvvv`** - режимы отладки (verbosity). Показывают больше деталей о подключении и переменных.
+
+```bash
+ansible-playbook deploy_app.yml -vvv
+```
+
+### Тегирование задач:
+
+Теги позволяют запускать только часть плейбука.
+
+```yaml
+tasks:
+  - name: Установить пакеты
+    apt: ...
+    tags: [packages, base]
+
+  - name: Настроить конфиг
+    template: ...
+    tags: [config, web]
+
+  - name: Перезапустить сервис
+    service: ...
+    tags: [restart, web]
+```
+
+**Только установка:**
+
+```bash
+ansible-playbook site.yml --tags packages
+```
+
+**Всё кроме перезапуска:**
+
+```bash
+ansible-playbook site.yml --skip-tags restart
+```
+
+**Показать список тегов:**
+
+```bash
+ansible-playbook site.yml --list-tags
+```
+
 ### Полезные возможности и нюансы при работе с playbook-ами:
 
-### Идемпотентность: `command`/`shell` vs Модули:
+#### Идемпотентность: `command`/`shell` vs Модули:
 
 - **Модули (`apt`, `user`, `file`)**: Сначала проверяют состояние системы.
     - _Пример:_ `apt: name=nginx state=present`. Ansible спрашивает: «Nginx установлен?». Если да — задача помечается как `ok` (зеленая) и ничего не делает. Если нет — `changed` (желтая) и устанавливает.
@@ -1703,7 +2232,7 @@ vm.swappiness = 10
 
 Всегда ищите готовый модуль перед использованием `command`. Используйте `command` только в крайнем случае.
 
-### Опасность модуля `shell` и переменных окружения:
+#### Опасность модуля `shell` и переменных окружения:
 
 Модуль `shell` запускает команды через оболочку (`/bin/sh`), что позволяет использовать пайпы (`|`), перенаправление (`>`) и переменные среды. Но тут есть ловушка.
 
@@ -1726,31 +2255,8 @@ vm.swappiness = 10
     executable: /bin/bash
 ```
 
-### Игнорирование ошибок:
 
-По умолчанию, если любая задача падает с ошибкой, выполнение плейбука на этом хосте **прекращается**. Иногда ошибка допустима (например, попытка остановить сервис, которого нет).
-
-```yaml
-- name: Остановить старый сервис (если есть)
-  service:
-    name: old_service
-    state: stopped
-  ignore_errors: yes  # Продолжить выполнение следующих задач даже при ошибке
-```
-
-_Нюанс:_ Задача пометится как красная (`failed`), но плейбук пойдет дальше.
-
-### Принудительное продолжение (`force_handlers`):
-
-Обычно, если задача падает, накопленные уведомления (`notify`) не срабатывают. Флаг `force_handlers` заставляет их выполниться даже при ошибке.
-
-```yaml
-- hosts: all
-  force_handlers: true # Запустить хендлеры даже если задачи выше упали
-  tasks: ...
-```
-
-### Блоки `block` / `rescue` / `always` (Аналог try/catch):
+#### Блоки `block` / `rescue` / `always` (Аналог try/catch):
 
 Это мощный механизм обработки исключений.
 
@@ -1779,7 +2285,7 @@ tasks:
           line: "Deployment attempt finished at {{ ansible_date_time.iso8601 }}"
 ```
 
-### Производительность: `strategy` и `forks`:
+#### Производительность: `strategy` и `forks`:
 
 По умолчанию Ansible использует стратегию `linear`:
 

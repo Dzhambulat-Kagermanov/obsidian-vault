@@ -17,10 +17,6 @@
 
 ### Работа с Galaxy:
 
-Циклы
-Условия
 find, mail, docker, git
-notify и handlers
-основные свойства present, register, name и прочие
 выполнение конкретной таски
 Спец функции в модулях lookup, match
