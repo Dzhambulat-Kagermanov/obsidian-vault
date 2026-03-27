@@ -913,7 +913,7 @@ default._domainkey  IN  TXT  "v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCB
 ;   p= — Base64-кодированный публичный ключ
 ```
 
-- **DMARC (Domain-based Message Authentication)**
+- **DMARC (Domain-based Message Authentication):**
 
 ```vim
 ; Политика обработки писем, не прошедших SPF/DKIM
@@ -928,4 +928,159 @@ _dmarc  IN  TXT  "v=DMARC1; p=reject; rua=mailto:dmarc-reports@example.com; ruf=
 ;   pct=100     — процент писем, к которым применять политику
 ```
 
-- 2
+- **Верификация сервисов:**
+
+```vim
+; Google Search Console
+google-site-verification=AbCdEfGhIjKlMnOpQrStUvWxYz1234567890
+
+; Microsoft 365
+MS=ms12345678
+
+; SSL-сертификаты (для некоторых провайдеров)
+_acme-challenge  IN  TXT  "random-token-for-http-01-validation"
+```
+
+- **Важные нюансы:**
+
+- Строки в кавычках автоматически конкатенируются:
+
+```vim
+@  IN  TXT  "v=spf1" "include:_spf.google.com" "~all"
+; Эквивалентно: "v=spf1 include:_spf.google.com ~all"
+```
+
+- Максимальная длина одной строки — 255 байт:
+
+```vim
+;    Длинные записи разбивайте на части:
+long-record  IN  TXT  "part1..." "part2..." "part3..."
+```
+
+- Не превышайте общий лимит записи: 64 КБ (на практике — ~4 КБ для совместимости);
+
+- Не используйте пробелы внутри кавычек без экранирования (лучше разбивать на части);
+
+**Проверка конфигурации:**
+
+```vim
+# Все TXT-записи домена
+dig example.com TXT +short
+
+# Конкретная запись (например, SPF)
+dig example.com TXT +short | grep spf
+
+# DKIM (замените default на ваш селектор)
+dig default._domainkey.example.com TXT +short
+
+# DMARC
+dig _dmarc.example.com TXT +short
+
+# Форматированный вывод для чтения
+dig example.com TXT +noall +answer
+```
+
+#### SRV (Service) — Служебная запись:
+
+**RFC:** 2782
+**Назначение:** Указание хоста и порта для сервисов (SIP, XMPP, LDAP, Kubernetes и др.).
+
+**Синтаксис:**
+
+```vim
+_service._protocol.name  [TTL]  IN  SRV  priority weight port target.
+```
+
+| Поле         | Диапазон | Значение                                           |
+| ------------ | -------- | -------------------------------------------------- |
+| **priority** | 0..65535 | Приоритет: меньшее = выше (аналог MX)              |
+| **weight**   | 0..65535 | Вес для балансировки внутри одного приоритета      |
+| **port**     | 0..65535 | Порт сервиса                                       |
+| **target**   | домен    | Хост, предоставляющий сервис (должен иметь A/AAAA) |
+
+* SIP-телефония (VoIP):
+
+```vim
+_sip._tcp.example.com.  IN  SRV  10  60  5060  sip1.example.com.
+_sip._tcp.example.com.  IN  SRV  10  40  5060  sip2.example.com.
+; Клиенты будут распределять нагрузку: 60% на sip1, 40% на sip2
+```
+
+* XMPP (Jabber):
+
+```vim
+_xmpp-client._tcp.example.com.  IN  SRV  5  0  5222  xmpp.example.com.
+_xmpp-server._tcp.example.com.  IN  SRV  5  0  5269  xmpp.example.com.
+```
+
+
+* LDAP с TLS:
+
+```vim
+_ldap._tcp.example.com.  IN  SRV  0  100  636  ldap.example.com.
+```
+
+* Kubernetes etcd:
+
+```vim
+_etcd-server._tcp.example.com.  IN  SRV  0  100  2380  etcd1.example.com.
+_etcd-server._tcp.example.com.  IN  SRV  0  100  2380  etcd2.example.com.
+```
+
+**Важные нюансы:**
+
+- Всегда указывайте точку в конце target: srv.example.com;
+- Убедитесь, что target имеет A/AAAA-запись (не CNAME!);
+- Weight работает только внутри одного priority:
+	* priority=10, weight=60 и priority=10, weight=40 → балансировка 60/40
+	* priority=10 и priority=20 → сначала пробуют priority=10
+
+- Не используйте SRV для HTTP/HTTPS (для этого есть RFC 6186, но поддержка слабая);
+* Не указывайте порт 0 (резервирован).
+
+#### CAA (Certification Authority Authorization):
+
+**RFC:** 6844, 8659  
+**Назначение:** Указание, какие центры сертификации (CA) могут выпускать сертификаты для домена.
+
+**Синтаксис:**
+
+```vim
+<domain>  [TTL]  IN  CAA  <flags>  <tag>  <value>
+```
+
+**Параметры:**
+
+| Поле      | Значение                                                                       |
+| --------- | ------------------------------------------------------------------------------ |
+| **flags** | 0 (обычная запись), 128 (критичная — если не понят, отклонить)                 |
+| **tag**   | `issue` (выпуск обычных), `issuewild` (wildcard), `iodef` (отчёт о нарушениях) |
+| **value** | Домен CA или URL для отчётов                                                   |
+
+**Примеры использования:**
+
+```vim
+; Разрешить только Let's Encrypt и Sectigo
+@  IN  CAA  0  issue  "letsencrypt.org"
+@  IN  CAA  0  issue  "sectigo.com"
+
+; Запретить выпуск wildcard-сертификатов
+@  IN  CAA  0  issuewild  ";"
+
+; Отправлять отчёты о попытках выпуска у неавторизованных CA
+@  IN  CAA  0  iodef  "mailto:security@example.com"
+@  IN  CAA  0  iodef  "https://example.com/caa-report.php"
+
+; Разрешить только конкретный аккаунт (для некоторых CA)
+@  IN  CAA  0  issue  "letsencrypt.org; accounturi=https://acme-v02.api.letsencrypt.org/acme/acct/123456"
+```
+
+- Пустое значение `issue ";"` означает "запретить всем";
+- Если нет CAA-записей — любой CA может выпускать сертификаты;
+- Проверяйте CAA перед запросом сертификата:
+	- Некоторые CA игнорируют CAA (устаревшие);
+	- Используйте `caa-checker` от Let's Encrypt;
+
+* Не используйте CAA как единственную защиту:
+	- Это рекомендация, а не криптографическое ограничение
+	- Злонамеренный CA может проигнорировать запись
