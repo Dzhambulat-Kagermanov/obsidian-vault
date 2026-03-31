@@ -101,9 +101,15 @@ vim /etc/kea/kea-dhcp4.conf
 ```json
 {
 	...
-	"pools": [
-		{
-			"pool": "192.168.72.100 - 192.168.72.199"
+	"subnet4": [
+		{  
+			"id": 72,  
+			"subnet": "192.168.72.0/24",  
+			"pools": [
+				{
+					"pool": "192.168.72.100 - 192.168.72.199"
+				}
+			]
 		}
 	]
 }
@@ -114,12 +120,18 @@ vim /etc/kea/kea-dhcp4.conf
 ```json
 {
 	...
-	"pools": [  
-		{
-			"pool": "192.168.72.100 - 192.168.72.199"
-		},  
-		{
-			"pool": "192.168.72.210 - 192.168.72.249"
+	"subnet4": [
+		{  
+			"id": 72,  
+			"subnet": "192.168.72.0/24",  
+			"pools": [  
+				{
+					"pool": "192.168.72.100 - 192.168.72.199"
+				},  
+				{
+					"pool": "192.168.72.210 - 192.168.72.249"
+				}
+			]
 		}
 	]
 }
@@ -132,23 +144,29 @@ vim /etc/kea/kea-dhcp4.conf
 ```json
 {
 	...
-	"option-data": [  
-		{
-			"name": "routers",  
-			"data": "192.168.72.1"  
-		},  
-		{
-			"name": "domain-name-servers",  
-			"data": "192.168.72.1"  
-		},  
-		{
-			"name": "domain-name",  
-			"data": "it-31.lab"  
-		}, {  
-			"name": "domain-search",  
-			"data": "it-31.lab"  
+	"subnet4": [
+		{  
+			"id": 72,  
+			"subnet": "192.168.72.0/24",  
+			"option-data": [  
+				{
+					"name": "routers",  
+					"data": "192.168.72.1"  
+				},  
+				{
+					"name": "domain-name-servers",  
+					"data": "192.168.72.1"  
+				},  
+				{
+					"name": "domain-name",  
+					"data": "it-31.lab"  
+				}, {  
+					"name": "domain-search",  
+					"data": "it-31.lab"  
+				}
+			],
 		}
-	],
+	]
 }
 ```
 
@@ -157,14 +175,20 @@ vim /etc/kea/kea-dhcp4.conf
 ```json
 {
 	...
-	"option-data": [
+	"subnet4": [
 		{  
-			"code": 15, // domain-name
-			"data": "it-31.lab"  
-		},  
-		{  
-			"code": 119, // domain-search
-			"data": "it-31.lab"  
+			"id": 72,  
+			"subnet": "192.168.72.0/24",  
+			"option-data": [
+				{  
+					"code": 15, // domain-name
+					"data": "it-31.lab"  
+				},  
+				{  
+					"code": 119, // domain-search
+					"data": "it-31.lab"  
+				}
+			]
 		}
 	]
 }
@@ -180,15 +204,21 @@ vim /etc/kea/kea-dhcp4.conf
 ```json
 {
 	...
-	"reservations": [  
+	"subnet4": [
 		{  
-			"hw-address": "1a:1b:1c:1d:1e:1f",
-			"ip-address": "192.168.72.110"
-		},  
-		{  
-			"hw-address": "11:22:33:44:55:66",
-			"ip-address": "192.168.72.111"
-		}  
+			"id": 72,  
+			"subnet": "192.168.72.0/24",  
+			"reservations": [  
+				{  
+					"hw-address": "1a:1b:1c:1d:1e:1f",
+					"ip-address": "192.168.72.110"
+				},  
+				{  
+					"hw-address": "11:22:33:44:55:66",
+					"ip-address": "192.168.72.111"
+				}  
+			]
+		}
 	]
 }
 ```
@@ -200,14 +230,20 @@ vim /etc/kea/kea-dhcp4.conf
 ```json
 {
 	...
-	"reservations": [
-		{
-			"hw-address": "11:22:33:44:55:66",  
-			"ip-address": "192.168.72.111",  
-			"option-data": [
+	"subnet4": [
+		{  
+			"id": 72,  
+			"subnet": "192.168.72.0/24",  
+			"reservations": [
 				{
-					"name": "domain-name-servers",  
-					"data": "77.88.8.7, 77.88.8.3"  
+					"hw-address": "11:22:33:44:55:66",  
+					"ip-address": "192.168.72.111",  
+					"option-data": [
+						{
+							"name": "domain-name-servers",  
+							"data": "77.88.8.7, 77.88.8.3"  
+						}
+					]
 				}
 			]
 		}
