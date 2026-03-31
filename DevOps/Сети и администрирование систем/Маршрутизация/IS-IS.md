@@ -269,9 +269,7 @@ R1(config-if)# exit
 ! 7. Loopback интерфейс (анонсируем его в сеть)
 R1(config)# interface Loopback0
 R1(config-if)# ip address 1.1.1.1 255.255.255.255
-R1(config-if)# ip router isis CORE_NET
-! Делаем его пассивным (не шлем Hello пакеты, но анонсируем префикс)
-R1(config-if)# passive-interface
+R1(config-if)# ip router isis <CORE_NET>
 R1(config-if)# exit
 ```
 
@@ -293,6 +291,9 @@ R1(config-if)# exit
 	    2. Поддерживает **TLV для Traffic Engineering** (резервирование полосы пропускания, явные пути).
 	    3. Обязателен для работы **Segment Routing**.
 * `metric-style transition`: Отправлять и принимать оба типа. Полезно при миграции сети со старого оборудования на новое.
+
+> **Важно!** Каждый интерфейс попадает в таблицу LSDB если ввести в интерфейсе `ip router isis <CORE_NET>`. Если маршрут должен пересылаться другим маршрутам то отключать такой интерфейс нельзя (`passive-interface <int>`).
+
 
 #### Продвинутая настройка (Timers & Authentication):
 
