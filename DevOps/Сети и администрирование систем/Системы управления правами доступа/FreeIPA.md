@@ -278,7 +278,7 @@ dig _ldap._tcp.example.com SRV
 **Установка пакетов:**
 
 ```bash
-apt-get update && apt-get install freeipa-client
+apt-get update && apt-get install freeipa-client task-auth-freeipa
 ```
 
 #### Ввод хоста через терминал:
