@@ -372,13 +372,11 @@ ipa ping
 # Создать пользователя
 ipa user-add --first=Иван --last=Иванов --email=ivanov@example.com iivanov
 
-# Просмотреть пользователя
+# Информация о пользователе
 ipa user-show iivanov
 
 # Изменить атрибуты пользователя
 ipa user-mod iivanov --email=new@example.com --title="System Admin"
-
-
 
 # Сбросить пароль (требует прав администратора)
 ipa passwd iivanov
