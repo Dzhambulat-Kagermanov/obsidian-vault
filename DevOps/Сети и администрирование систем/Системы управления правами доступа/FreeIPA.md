@@ -378,15 +378,23 @@ ipa user-show iivanov
 # Изменить атрибуты пользователя
 ipa user-mod iivanov --email=new@example.com --title="System Admin"
 
+
+
 # Сбросить пароль (требует прав администратора)
 ipa passwd iivanov
+
+# Смена пароля пользователя
+ipa user-mod a.smith --password
 
 # Деактивировать / активировать пользователя
 ipa user-disable iivanov
 ipa user-enable iivanov
 
-# Удалить пользователя (мягкое удаление — в "trash")
-ipa user-del iivanov
+# Удалить пользователя “в корзину”, т.е. с возможностью восстановления
+ipa user-del --preserve a.smith
+
+# Восстановить пользователя “из корзины”
+ipa user-undel a.smith
 
 # Поиск пользователей
 ipa user-find --last=Иванов
