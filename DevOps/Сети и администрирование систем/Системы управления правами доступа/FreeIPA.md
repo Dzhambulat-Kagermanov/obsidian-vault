@@ -530,6 +530,15 @@ ipa sudorule-enable web-restart
 #### Управление встроенным DNS (если включен `--setup-dns`):
 
 ```bash
+# Изменить опцию в конфиге
+ipa dnszone-mod au.team. --allow-query="10.1.0.0/16; 127.0.0.1"
+
+# Просмотр информации о глобальной конфигурации
+ip dnsconfig-show
+
+# Установление forwarder-ов
+ipa dnsconfig-mod --forward=only --forwarder=8.8.8.8 --forwarder=8.8.4.4
+
 # Создать прямую зону
 ipa dnszone-add example.com --admin-email=admin@example.com
 
