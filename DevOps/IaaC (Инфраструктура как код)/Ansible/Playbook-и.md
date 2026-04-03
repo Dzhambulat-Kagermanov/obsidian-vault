@@ -2511,3 +2511,5 @@ _Нюанс:_ Порядок выполнения задач между разн
 
 !!!TODO
 Что делает update_cache
+community.general.apt_rpm
+ansible.builtin.template разница с template
