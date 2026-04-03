@@ -525,8 +525,3 @@ R1 (L1/L2) ----> AREA A (L1) <---- L2 Backbone ----> AREA B (L2) <---- R2 (L1/L2
 4. R1 НЕ имеет права анонсировать этот маршрут с U/D=1 обратно в L2!;
 5. Петля невозможна.
 
-!!TODO 
-neighbor next-hop-self 
-neighbor update-source
-neighbor soft-reconfiguration inbound
-no bgp ebgp-requires-policy

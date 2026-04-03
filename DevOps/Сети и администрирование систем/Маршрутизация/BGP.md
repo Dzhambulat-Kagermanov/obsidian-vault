@@ -360,5 +360,9 @@ router bgp 65000
     - Будьте готовы, что первая загрузка займет 10-30 минут, а процессор будет греться.
 
 
-!!!TODO  no bgp ebgp-requires-policy
+!!TODO 
+neighbor next-hop-self 
+neighbor update-source
+neighbor soft-reconfiguration inbound
+no bgp ebgp-requires-policy
 путь по умолчанию default information
