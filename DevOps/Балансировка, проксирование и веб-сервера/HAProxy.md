@@ -160,6 +160,49 @@ frontend https_front
 bind *:443 ssl crt /etc/haproxy/certs/
 # HAProxy сам найдет нужный .pem файл в папке по имени домена
 ```
+
+### Безопасность и ACL (Access Control Lists):
+
+**Блокировка по IP:**
+
+```haproxy
+frontend http_front
+    acl blocked_ip src 192.168.1.50 10.0.0.5
+    http-request deny if blocked_ip
+```
+
+**Блокировка по User-Agent (боты, сканеры):**
+
+```haproxy
+    acl bad_bot hdr_sub(User-Agent) -i nikto sqlmap
+    http-request deny if bad_bot
+```
+
+**Rate Limiting (Защита от DDoS/Brute-force):**
+Используется `stick-table` для подсчета запросов от одного IP.
+```haproxy
+frontend http_front
+    # Создаем таблицу в памяти: храним IP, считаем запросы за 10 сек
+    stick-table type ip size 100k expire 30s store http_req_rate(10s)
+    
+    # Трекаем текущий IP
+    http-request track-sc0 src
+    
+    # Если больше 100 запросов за 10 сек -> блокируем (429 Too Many Requests)
+    http-request deny deny_status 429 if { sc_http_req_rate(0) gt 100 }
+```
+
+**Скрытие информации о сервере:**
+
+```haproxy
+backend web_servers
+    # Убираем заголовок Server, чтобы не светить версию Nginx/Apache
+    http-response del-header Server
+    # Убираем заголовок X-Powered-By (часто выдает PHP)
+    http-response del-header X-Powered-By
+```
+
+
 ### Полезные команды:
 
 **Проверка конфигурации:**
