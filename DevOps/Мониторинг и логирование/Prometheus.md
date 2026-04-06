@@ -259,6 +259,153 @@ http_requests_total{method="GET",status="500"}  # ← Новый ряд созд
 
 Метка `instance="<host>:<port>"`, добавляемая Prometheus автоматически.
 
+Создается **автоматически Prometheus-ом** при скрейпинге каждой цели:
+
+```
+Вы указали в конфиге: targets: ['api-01:8080']
+
+Prometheus при скрейпинге добавит:
+→ Все метрики с этого таргета получат лейбл: instance="api-01:8080"
+```
+
+#### Job:
+
+Лейбл, который добавляется ко всем метрикам с целей одной группы. Создается **автоматически Prometheus** на основе `job_name` в `scrape_configs`:
+
+```yaml
+scrape_configs:
+  - job_name: 'api-servers'  # ← Значение будущего лейбла job="api-servers"
+    static_configs:
+      - targets:
+          - 'api-01:8080'
+          - 'api-02:8080'
+```
+
+#### Labelset (Набор лейблов) - полный контекст сэмпла:
+
+Пример:
+
+```tsdb
+{job="api", instance="api-01:8080", env="prod", method="GET", status="200"}
+```
+
+**Собирается автоматически** из всех источников:
+
+1. Из кода/экспортера: method="GET", status="200"
+2. Prometheus добавляет: job="api", instance="api-01:8080"
+3. external_labels из конфига: cluster="prod-eu"
+4. labels из static_configs: env="production"
+5. relabel_configs: может добавить/изменить/удалить любой лейбл
+
+
+```yml
+global:
+  external_labels:
+    cluster: 'prod-eu'  # ← Источник #3
+
+scrape_configs:
+  - job_name: 'api'     # ← Источник #2 (job)
+    static_configs:
+      - targets: ['api-01:8080']  # ← Источник #2 (instance)
+        labels:
+          env: 'production'       # ← Источник #4
+    metric_relabel_configs:
+      - target_label: 'region'    # ← Источник #5
+        replacement: 'eu-west'
+```
+
+#### Rule (Правило) — логика обработки:
+
+**Recording Rule (Правило записи)**. Предварительно вычисленная метрика.
+
+**Как создается:**
+
+1. Вы пишете YAML-файл с правилом
+2. Указываете путь к файлу в `rule_files` в `prometheus.yml`
+3. Prometheus загружает правило при старте (или по SIGHUP)
+4. Каждые `evaluation_interval` правило вычисляется → создается новая метрика
+
+Пример файла `rules/recording.yml`:
+
+```yaml
+groups:
+  - name: api-recording-rules
+    interval: 30s  # ← Как часто вычислять (переопределяет global)
+    rules:
+      - record: job:http_requests:rate5m  # ← Имя новой метрики!
+        expr: sum(rate(http_requests_total[5m])) by (job)
+```
+
+Пример подключения в `prometheus.yml`:
+
+```yml
+rule_files:
+  - "rules/recording/*.yml"  # ← Prometheus загрузит все файлы из этой папки
+```
+
+**Alerting Rule (Правило алерта).** Условие для генерации уведомления.
+
+**Как создается:** Аналогично recording rule, но с дополнительной логикой.
+
+Пример файла `rules/alerts.yml`:
+
+```yml
+groups:
+  - name: api-alerts
+    rules:
+      - alert: HighErrorRate  # ← Имя алерта
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1  # ← Условие
+        for: 10m              # ← Должно держаться 10 минут, чтобы сработать
+        labels:               # ← Лейблы для алерта (попадут в уведомление)
+          severity: critical
+          team: backend
+        annotations:          # ← Человекочитаемое описание (поддерживает шаблонизацию)
+          summary: "Высокий уровень ошибок на {{ $labels.instance }}"
+          description: "Доля ошибок > 10% в течение 10 минут. Текущее значение: {{ $value }}"
+```
+
+#### Alert (Алерт) — сработавшее правило.
+
+Экземпляр правила, который в данный момент истинен. Как создается:
+
+| Этап            | Кто          | Что делает                                                                       |
+| --------------- | ------------ | -------------------------------------------------------------------------------- |
+| 1️⃣ Оценка      | Prometheus   | Проверяет `expr` правила каждые `evaluation_interval`                            |
+| 2️⃣ PENDING     | Prometheus   | Если `expr = true` → создает алерт со статусом `PENDING`, запускает таймер `for` |
+| 3️⃣ FIRING      | Prometheus   | Если таймер `for` истек → меняет статус на `FIRING`, отправляет в Alertmanager   |
+| 4️⃣ Уведомление | Alertmanager | Получает алерт → применяет группировку/подавление → отправляет в каналы          |
+| 5️⃣ RESOLVED    | Prometheus   | Когда `expr = false` → отправляет `RESOLVED` → Alertmanager шлет "всё починили"  |
+
+Сценарий работы:
+
+```yml
+# Правило
+- alert: HighCPU
+  expr: avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) < 0.2
+  for: 5m
+```
+
+```
+Время 14:00: CPU idle = 25% → expr = false → ничего не происходит
+Время 14:05: CPU idle = 15% → expr = true → алерт создан, статус: PENDING, таймер: 0/5m
+Время 14:07: CPU idle = 10% → expr = true → таймер: 2/5m
+Время 14:10: CPU idle = 8%  → expr = true → таймер истек! → статус: FIRING → отправка в Alertmanager
+Время 14:12: CPU idle = 30% → expr = false → статус: RESOLVED → уведомление о восстановлении
+```
+
+#### TSDB (Time Series Database) — локальное хранилище:
+
+Встроенная база данных Prometheus для хранения временных рядов на диске.
+
+**Как создается и управляется:**
+
+| Компонент                 | Как создается                                                                                | Назначение                                             |
+| ------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| **WAL (Write Ahead Log)** | Автоматически при старте Prometheus в `path: /prometheus/data/wal`                           | Журнал последних данных для защиты от потери при краше |
+| **Блоки (blocks)**        | Каждые `min_block_duration` (по умолчанию 2h) Prometheus "замораживает" данные в сжатый блок | Долгосрочное хранение, сжатие, эффективные запросы     |
+| **Индекс**                | Создается при формировании блока                                                             | Быстрый поиск рядов по лейблам                         |
+| **Meta-файлы**            | Автоматически                                                                                | Метаданные: время блока, статистика                    |
+
 ### Настройка prometheus:
 
 ```yml
