@@ -81,7 +81,7 @@ Prometheus — это не один монолит, а набор компоне
 	- **Минус:** Нельзя агрегировать несколько Summary в одну (нельзя посчитать средний 95-й перцентиль по всем серверам).
 	- **Рекомендация:** В 95% случаев лучше использовать **Histogram**, так как он гибче.
 
-### Принцип вытягивания метрик с клиента:
+#### Принцип вытягивания метрик с клиента:
 
 Это фундаментальное отличие от систем вроде Zabbix или StatsD (которые часто работают по Push-модели, когда агент сам отправляет данные).
 
@@ -123,3 +123,191 @@ Prometheus — это не один монолит, а набор компоне
     - Это особый случай. Он не стоит на целевом сервере.
     - Prometheus просит Blackbox: "Проверь, доступен ли google.com по HTTPS".
     - Blackbox сам делает запрос, замеряет время и возвращает метрику: `probe_success 1` или `0`.
+
+### Настройка prometheus:
+
+
+```yml
+# =============================================================================
+# 1. ГЛОБАЛЬНЫЕ НАСТРОЙКИ (Global)
+# =============================================================================
+global:
+  # Как часто опрашивать цели (targets). 
+  # Можно переопределить для конкретного job в scrape_configs.
+  scrape_interval: 15s
+
+  # Как часто вычислять правила (rules) и алерты.
+  # Обычно совпадает со scrape_interval или кратен ему.
+  evaluation_interval: 15s
+
+  # Метки, которые добавляются ко ВСЕМ метрикам и алертам.
+  # Критически важно для федерации или remote_write, чтобы отличать источники.
+  external_labels:
+    monitor: 'prod-cluster-01'
+    region: 'eu-west-1'
+
+  # Таймаут запроса к цели. Если цель не ответила за это время — ошибка.
+  scrape_timeout: 10s
+
+# =============================================================================
+# 2. ФАЙЛЫ С ПРАВИЛАМИ (Rule Files)
+# =============================================================================
+# Здесь лежат записи для Recording Rules (предрасчет) и Alerting Rules (алерты).
+# Prometheus загружает их при старте и обновляет по сигналу SIGHUP.
+rule_files:
+  - "rules/alerts/*.yml"
+  - "rules/recording/*.yml"
+
+# =============================================================================
+# 3. НАСТРОЙКИ АЛЕРТИНГА (Alerting)
+# =============================================================================
+alerting:
+  alertmanagers:
+    - static_configs:
+        # Адреса Alertmanager. Можно указать несколько для HA.
+        - targets:
+            - alertmanager-1:9093
+            - alertmanager-2:9093
+      # Протокол и таймауты
+      scheme: http
+      timeout: 10s
+      # Версия API (v2 используется чаще всего)
+      api_version: v2
+
+# =============================================================================
+# 4. НАСТРОЙКИ ХРАНЕНИЯ (Storage)
+# =============================================================================
+storage:
+  tsdb:
+    # Путь к данным (по умолчанию ./data)
+    path: /prometheus/data
+    # Сколько хранить данные локально. 
+    # Для долгосрочного хранения используют remote_write + Thanos/Cortex.
+    retention:
+      time: 15d
+      # Или по размеру:
+      # size: 50GB
+    # Минимальное время блока (advanced tuning)
+    min_block_duration: 2h
+    # Максимальное время блока
+    max_block_duration: 2h
+
+# =============================================================================
+# 5. УДАЛЕННОЕ ЧТЕНИЕ/ЗАПИСЬ (Remote Read/Write)
+# =============================================================================
+# Используется для долгосрочного хранения или глобального просмотра.
+remote_write:
+  - url: "http://thanos-receive:19291/api/v1/receive"
+    # Метки для удаленной системы
+    remote_timeout: 30s
+    # Очередь записи (tuning performance)
+    queue_config:
+      capacity: 10000
+      max_shards: 50
+      max_samples_per_send: 5000
+    # Ретрай логики
+    write_relabel_configs:
+      # Пример: не отправлять метрики с высоким кардиналом в удаленку
+      - source_labels: [__name__]
+        regex: 'http_request_duration_seconds_bucket'
+        action: drop
+
+remote_read:
+  - url: "http://thanos-query:10902/api/v1/read"
+    read_recent: true # Читать свежие данные из локального TSDB, старые отсюда
+
+# =============================================================================
+# 6. КОНФИГУРАЦИЯ СБОРА ДАННЫХ (Scrape Configs)
+# =============================================================================
+scrape_configs:
+
+  # --- 6.1. Мониторинг самого Prometheus ---
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    # Добавляем метку, кто это
+    metric_relabel_configs:
+      - target_label: 'service'
+        replacement: 'prometheus'
+
+  # --- 6.2. Node Exporter (Статический список) ---
+  - job_name: 'node-exporter'
+    scrape_interval: 30s # Переопределяем глобальный интервал
+    static_configs:
+      - targets: 
+          - '192.168.1.10:9100'
+          - '192.168.1.11:9100'
+        # Лейблы для этой группы хостов
+        labels:
+          env: 'production'
+          team: 'infra'
+    # Relabeling до скрейпинга (манипуляция целями)
+    relabel_configs:
+      # Пример: если метка env != production, не скрейпить
+      - source_labels: [env]
+        regex: 'production'
+        action: keep
+
+  # --- 6.3. Kubernetes Service Discovery (Динамический) ---
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+        # В каком кластере искать (если конфиг внутри кластера, не нужно)
+        # api_server: 'https://k8s-api:6443'
+        # tls_config: ...
+    
+    # Фильтруем только поды с аннотацией prometheus.io/scrape: "true"
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      
+      # Берем порт из аннотации, если есть
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: (.+)
+        replacement: ${1}
+      
+      # Добавляем имя пода как лейбл
+      - source_labels: [__meta_kubernetes_pod_name]
+        target_label: pod
+      
+      # Добавляем неймспейс
+      - source_labels: [__meta_kubernetes_namespace]
+        target_label: namespace
+
+  # --- 6.4. File Service Discovery (Для динамических IP вне K8s) ---
+  # Скрипт снаружи генерирует файл targets.json, Prometheus его подхватывает
+  - job_name: 'file-sd-targets'
+    file_sd_configs:
+      - files:
+          - '/etc/prometheus/targets/*.json'
+        refresh_interval: 5s
+    metric_relabel_configs:
+      # Пример: переименовать метрику на лету
+      - source_labels: [__name__]
+        regex: 'old_metric_name'
+        target_label: __name__
+        replacement: 'new_metric_name'
+
+  # --- 6.5. Blackbox Exporter (Проверка доступности) ---
+  - job_name: 'blackbox-http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx] # Какой модуль blackbox использовать
+    static_configs:
+      - targets:
+          - https://google.com
+          - https://mysite.com
+    relabel_configs:
+      # Адрес цели передаем в параметр target для blackbox
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      # Реальный адрес blackbox exporter
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+```
+
