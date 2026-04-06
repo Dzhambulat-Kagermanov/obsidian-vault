@@ -129,6 +129,27 @@ listen stats
 4.  **`backend`**: Описывает пул серверов, куда пересылается трафик. Здесь выбирается алгоритм балансировки (`balance`) и настраиваются проверки здоровья (`check`).
 5.  **`listen`**: Комбинирует функции frontend и backend. Часто используется для сервисов, работающих по TCP (например, базы данных) или для страницы статистики.
 
+### Настройка SSL:
+
+HAProxy требует, чтобы сертификат и приватный ключ были в **одном файле** формата `.pem`.
+
+```haproxy
+frontend https_front
+    bind *:443 ssl crt /etc/haproxy/certs/domain.pem alpn h2,http/1.1
+    
+    # Принудительный редирект с HTTP на HTTPS (если слушает и 80 тоже)
+    redirect scheme https code 301 if !{ ssl_fc }
+
+    # Безопасные заголовки (HSTS)
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
+    # Современные настройки шифрования (защита от уязвимостей)
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+    default_backend web_servers
+```
+
 ### Полезные команды:
 
 **Проверка конфигурации:**
