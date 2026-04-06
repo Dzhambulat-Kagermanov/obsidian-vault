@@ -204,8 +204,34 @@ backend web_servers
 
 ### Логирование и мониторинг:
 
-**Кастомный формат логов:** Стандартные логи могут быть недостаточно информативны.
+**Кастомный формат логов:**
 
+```haproxy
+defaults
+    # Вывод времени, клиента, запроса, статуса, времени ответа
+    log-format "%ci:%cp [%t] %ft %b/%s %Tq/%Tw/%Tc/%Tr/%Ta %ST %B %CC %CS %tsc %ac/%fc/%bc/%sc/%rc %sq/%bq %hr %hs %{+Q}r"
+```
+
+**Захват заголовков в лог:**
+
+```haproxy
+frontend http_front
+    capture request header X-Request-ID len 64
+    capture response header X-Response-Time len 32
+```
+
+**Экспорт метрик (Prometheus):**
+
+```haproxy
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /metrics
+    stats show-legends
+    # Включает экспорт в формате Prometheus
+    prometheus-exporter enable
+    prometheus-exporter uri /metrics
+```
 ### Полезные команды:
 
 **Проверка конфигурации:**
