@@ -490,8 +490,8 @@ receivers:
 
   - name: 'telegram-critical'
     telegram_configs:
-      - bot_token: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'
-        chat_id: '-1001234567890'
+      - bot_token: 'token'
+        chat_id: 'chat_id'
         parse_mode: 'HTML'
         # Можно кастомизировать сообщение
         message: |
