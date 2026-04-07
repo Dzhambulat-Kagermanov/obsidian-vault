@@ -579,16 +579,130 @@ Prometheus использует **специальный протокол** дл
 | **VictoriaMetrics**        | TSDB + долгосрочное хранение | Совместима с Prometheus, может быть как "приемником", так и заменой Prometheus            |
 | **M3DB**                   | Долгосрочное хранение        | От Uber, распределенная TSDB                                                              |
 | **InfluxDB** (с адаптером) | Универсальная TSDB           | Может принимать данные Prometheus через плагин                                            |
-#### write_relabel_configs:
+#### Relabeling:
 
-```yaml
-write_relabel_configs:
-  - source_labels: [__name__]
-    regex: 'http_request_duration_seconds_bucket'
-    action: drop
-```
+В Prometheus есть два этапа, когда можно менять метки (labels).
 
+* **Этап 1. До скрейпинга (Target Relabeling):**
+	Происходит **до** того, как Prometheus делает HTTP-запрос к экспортеру. Здесь мы работаем с **мета-лейблами** (те, что начинаются с `__`).
+	* `relabel_configs`:
+		* **Цель:** Решить, **кого** опрашивать и **как** к нему подключаться.
+		- **Что меняет:** Адрес подключения (`__address__`), путь (`__metrics_path__`), схему, или вообще выкидывает таргет из списка.
+		- **Когда применять:**
+		    - Если нужно изменить IP/порт перед подключением.
+		    - Если нужно отфильтровать лишние таргеты из Service Discovery (например, в K8s оставить только поды с аннотацией `prometheus.io/scrape=true`).
+		    - Чтобы добавить статические лейблы (например, `env=prod`) ко всем метрикам этого джоба.
+- **Этап 2: После скрейпинга (Metric Relabeling):**
+	Происходит **после** того, как Prometheus получил текст с метриками, распарсил его, но **перед** записью в базу данных (TSDB).
+	* **`metric_relabel_configs`** (в блоке `scrape_configs`)
+	    - **Цель:** Изменить, **что** сохранять в базу.
+	    - **Что меняет:** Имена метрик, лейблы самих метрик, или выкидывает ненужные метрики.
+	    - **Когда применять:**
+	        - Чтобы удалить "мусорные" метрики, которые занимают место, но не нужны (снижение кардинальности).
+	        - Чтобы переименовать конфликтующие метрики.
+	        - Чтобы удалить чувствительные данные из лейблов (например, `user_id`).
+	* **`write_relabel_configs`** (Глобальная настройка или в Remote Write)
+	    - **Цель:** То же самое, что и `metric_relabel_configs`, но применяется **глобально** ко всем данным, которые уходят из этого экземпляра Prometheus.
+	    - **Где используется:**
+	        - Чаще всего при использовании **Remote Write** (отправка данных в Thanos, Cortex, VictoriaMetrics).
+	        - Позволяет фильтровать данные _перед_ отправкой во внешнее хранилище, экономя трафик и место там.
+	    - _Примечание:_ В обычном локальном Prometheus `write_relabel_configs` практически не используется, если ты не пишешь данные куда-то еще через `remote_write`. Для локальной TSDB используй `metric_relabel_configs`.
 
+![[Снимок экрана 2026-04-07 130753.png|697]]
+
+**Разбор действий (Actions).** В `relabel_configs` и `metric_relabel_configs` используются одни и те же действия:
+
+- **`replace`** (по умолчанию): Заменяет значение целевого лейбла. Используется regex для поиска и `$1`, `$2` для вставки.
+- **`keep`**: Оставляет таргет/метрику, **только если** regex совпадает с исходными лейблами. Если не совпал — удаляет. (Используется для фильтрации).
+- **`drop`**: Удаляет таргет/метрику, **если** regex совпадает. (Обратное keep).
+- **`labelmap`**: Копирует все лейблы, подходящие под regex, в новые лейблы. Удобно, чтобы забрать все мета-лейблы K8s.
+- **`labeldrop`**: Удаляет лейблы, имена которых подходят под regex.
+- **`labelkeep`**: Оставляет только те лейблы, имена которых подходят под regex. (Опасно, можно случайно удалить `__name__` или `instance`).
+
+##### Meta-label-ы:
+
+Мета-лейблы (meta labels) — это временные метки, которые Prometheus создает автоматически на этапе **Service Discovery (SD)**. Они содержат техническую информацию об источнике данных (IP, порт, имя пода, аннотации, теги облака и т.д.).
+
+Главное правило:
+
+1. Все мета-лейблы начинаются с двойного подчеркивания `__`.
+2. Они **не сохраняются** в базу данных (TSDB).
+3. Их единственная цель — помочь тебе в `relabel_configs` решить, что делать с таргетом или какие постоянные лейблы ему присвоить.
+4. После этапа `relabel_configs` все лейблы, начинающиеся на `__`, удаляются (если ты явно не переименовал их, убрав подчеркивания).
+
+Список мета-лейблов зависит от того, какой тип Service Discovery ты используешь. Вот самые популярные:
+
+**Kubernetes SD (`kubernetes_sd_configs`).**
+
+Это самый богатый источник мета-лейблов. Они зависят от `role` (pod, service, node, endpoint, endpointslice).
+
+Для роли `pod` (самая частая):
+
+- `__meta_kubernetes_namespace`: Неймспейс пода.
+- `__meta_kubernetes_pod_name`: Имя пода.
+- `__meta_kubernetes_pod_ip`: IP адрес пода.
+- `__meta_kubernetes_pod_label_<labelname>`: Значение конкретного лейбла пода.
+    - _Пример:_ Если у пода есть лейбл `app=nginx`, появится мета-лейбл `__meta_kubernetes_pod_label_app`.
+- `__meta_kubernetes_pod_annotation_<annotationname>`: Значение аннотации.
+    - _Пример:_ `__meta_kubernetes_pod_annotation_prometheus_io_scrape`.
+- `__meta_kubernetes_pod_container_name`: Имя контейнера.
+- `__meta_kubernetes_pod_node_name`: Имя ноды, где запущен под.
+- `__address__`: Изначально равен IP пода и порту контейнера (если указан `container_port`).
+
+Для роли `node`:
+
+- `__meta_kubernetes_node_name`: Имя ноды.
+- `__meta_kubernetes_node_label_<labelname>`: Лейблы ноды (например, `zone`, `instance-type`).
+- `__meta_kubernetes_node_address_<address_type>`: Адреса ноды (InternalIP, ExternalIP, Hostname).
+
+Для роли `service`:
+
+- `__meta_kubernetes_namespace`: Неймспейс сервиса.
+- `__meta_kubernetes_service_name`: Имя сервиса.
+- `__meta_kubernetes_service_label_<labelname>`: Лейблы сервиса.
+- `__meta_kubernetes_service_port_name`: Имя порта.
+- `__meta_kubernetes_service_port_number`: Номер порта.
+
+**File SD (`file_sd_configs`):**
+
+Когда ты генерируешь JSON/YAML файлы через Ansible/Terraform.
+
+- `__meta_filepath`: Путь к файлу, из которого был взят таргет.
+- _(В самом JSON-файле ты можешь задать любые свои лейблы, они сразу станут обычными лейблами, а не мета, если не начинаются с `__`)_.
+
+**Consul SD (`consul_sd_configs`):**
+
+- `__meta_consul_address`: Адрес сервиса.
+- `__meta_consul_dc`: Datacenter.
+- `__meta_consul_node`: Имя ноды в Consul.
+- `__meta_consul_service`: Имя сервиса.
+- `__meta_consul_service_id`: ID сервиса.
+- `__meta_consul_tag_<tagname>`: Теги сервиса.
+    - _Пример:_ Если тег `production`, будет `__meta_consul_tag_production`.
+- `__meta_consul_service_metadata_<key>`: Метаданные сервиса.
+
+**DNS SD (`dns_sd_configs`):**
+
+- `__meta_dns_name`: Имя хоста, полученное из DNS записи.
+
+**EC2 SD (AWS):**
+
+- `__meta_ec2_instance_id`: ID инстанса.
+- `__meta_ec2_private_ip`: Приватный IP.
+- `__meta_ec2_public_ip`: Публичный IP.
+- `__meta_ec2_availability_zone`: AZ (например, `us-east-1a`).
+- `__meta_ec2_tag_<tagname>`: Теги AWS.
+    - _Пример:_ `__meta_ec2_tag_Name`.
+- `__meta_ec2_instance_state`: Состояние (running, stopped).
+
+**Общие мета-лейблы (есть всегда):**
+
+Независимо от типа SD, Prometheus добавляет:
+
+- `__address__`: **Самый важный!** Это целевой адрес (`host:port`), к которому Prometheus сделает HTTP запрос. По умолчанию берется из SD, но его часто меняют через `relabel_configs`.
+- `__scheme__`: Протокол (`http` или `https`). По умолчанию `http`.
+- `__metrics_path__`: Путь к метрикам. По умолчанию `/metrics`.
+- `__param_<name>`: Параметры URL query string.
 
 
 ### Настройка alert-инга:
