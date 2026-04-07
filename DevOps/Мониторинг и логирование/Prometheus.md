@@ -516,7 +516,26 @@ receivers:
     - Prometheus ждет немного (чтобы убедиться, что это не флуктуация) и отправляет в Alertmanager пакет со статусом `resolved`.
     - Alertmanager помечает алерт как решенный и может отправить уведомление "All clear" (если настроено).
 
-#### Нюансы
+#### Нюансы при работе с alert-ами:
+
+##### Cardinality в алертах:
+
+Не рекомендуется группировать по меткам с высокой кардинальностью (например, `pod_name` или `container_id`).
+- _Плохо:_ `group_by: ['pod_name']` (создаст тысячи отдельных уведомлений).
+- _Хорошо:_ `group_by: ['job', 'namespace']` (сгруппирует все поды одного сервиса в одно сообщение: "В namespace X упало 5 подов сервиса Y").
+##### Inhibition (Подавление):
+
+Если у тебя упал хост (`InstanceDown`), нет смысла получать алерты `HighCpu` или `ServiceDown` для сервисов на этом хосте. дф
+
+```yaml
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+      alertname: 'InstanceDown'
+    target_match:
+      severity: 'warning'
+    equal: ['instance'] # Подавлять target, если у него такой же instance, как у source
+```
 
 ### Масштабирование и Федерация:
 
