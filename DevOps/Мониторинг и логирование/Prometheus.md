@@ -441,7 +441,19 @@ alerting:
 
 #### Настройка Alertmanager-а:
 
-Alertmanager получает алерты от Prometheus и решает, что с ними делать.
+**Установка пакетов:**
+
+```bash
+apt-get update && apt-get install alertmanager
+```
+
+**Запуск:**
+
+```bash
+./alertmanager --config.file=alertmanager.yml
+```
+
+Alertmanager получает алерты от Prometheus и решает, что с ними делать. По умолчанию он слушает порт **9093**.
 
 1. **Route (Маршрут):** Дерево решений. "Если severity=critical -> звони в телефон. Если warning -> пиши в Slack".
 2. **Group By (Группировка):** Схлопывает похожие алерты в одно сообщение.
@@ -525,7 +537,7 @@ receivers:
 - _Хорошо:_ `group_by: ['job', 'namespace']` (сгруппирует все поды одного сервиса в одно сообщение: "В namespace X упало 5 подов сервиса Y").
 ##### Inhibition (Подавление):
 
-Если у тебя упал хост (`InstanceDown`), нет смысла получать алерты `HighCpu` или `ServiceDown` для сервисов на этом хосте. дф
+Если у тебя упал хост (`InstanceDown`), нет смысла получать алерты `HighCpu` или `ServiceDown` для сервисов на этом хосте.
 
 ```yaml
 inhibit_rules:
@@ -536,6 +548,8 @@ inhibit_rules:
       severity: 'warning'
     equal: ['instance'] # Подавлять target, если у него такой же instance, как у source
 ```
+
+Если есть критический алерт `InstanceDown` для `server-1`, то любые warning-алерты для `server-1` будут заглушены.
 
 ### Масштабирование и Федерация:
 
