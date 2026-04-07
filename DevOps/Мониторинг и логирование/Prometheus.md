@@ -368,6 +368,153 @@ Prometheus спроектирован так, чтобы быть устойчи
 2. **Alertmanager:** Логика «Кому и как отправлять?» (отдельный сервис).
 3. **Интеграции:** Куда слать (Telegram, Slack, Email).
 
+#### Создание правил срабатывания alert-а:
+
+Правила хранятся в YAML-файлах. Обычно их кладут в папку `/etc/prometheus/rules/`.
+
+```yaml
+groups:
+  - name: example_alerts
+    rules:
+      # 1. Простой алерт: Сервер недоступен
+      - alert: InstanceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Экземпляр {{ $labels.instance }} недоступен"
+          description: "Сервер {{ $labels.instance }} не отвечает более 1 минуты. Job: {{ $labels.job }}"
+
+      # 2. Алерт на высокую нагрузку CPU
+      - alert: HighCpuUsage
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: devops
+        annotations:
+          summary: "Высокая нагрузка CPU на {{ $labels.instance }}"
+          description: "Загрузка CPU превышает 80% уже 5 минут. Текущее значение: {{ $value | humanize }}%"
+```
+
+**Разбор полей:**
+
+- **`alert`**: Имя алерта (уникальный идентификатор).
+- **`expr`**: PromQL выражение. Если оно возвращает хоть один временной ряд (значение не пустое), условие считается истинным.
+- **`for`**: Время ожидания (Pending state).
+    - Если `up == 0` сработало только что, алерт переходит в статус **Pending**.
+    - Он станет **Firing** (активным) только если условие держится истинным дольше `1m`.
+    - _Зачем?_ Чтобы не спамить алертами при кратковременных сетевых лагах (flapping).
+- **`labels`**: Метаданные, которые передадутся в Alertmanager.
+    - `severity`: Критичность (critical, warning, info). Используется для маршрутизации.
+    - `team`: Кто отвечает.
+    - _Важно:_ Любые лейблы из метрики (например, `instance`) автоматически добавляются к алерту, если ты не перезапишешь их.
+- **`annotations`**: Текст сообщения.
+    - `{{ $labels.instance }}`: Подставляет значение лейбла из сработавшей метрики.
+    - `{{ $value }}`: Подставляет численное значение выражения (например, `95.5`).
+    - `| humanize`: Форматирует число (убирает лишние нули, делает читаемым).
+
+
+#### Подключение правил к Prometheus:
+
+В файле `prometheus.yml` нужно указать путь к файлам с правилами:
+
+```yaml
+global:
+  scrape_interval: 15s
+
+# Указываем, где лежат правила
+rule_files:
+  - "rules/*.yml"  # Можно использовать маски
+
+# Указываем, куда слать сработавшие алерты
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - "alertmanager:9093" # Адрес твоего Alertmanager
+```
+
+> После изменения конфига нужно перезагрузить Prometheus или нажать кнопку "Reload Configuration" в веб-интерфейсе.
+
+#### Настройка Alertmanager-а:
+
+Alertmanager получает алерты от Prometheus и решает, что с ними делать.
+
+1. **Route (Маршрут):** Дерево решений. "Если severity=critical -> звони в телефон. Если warning -> пиши в Slack".
+2. **Group By (Группировка):** Схлопывает похожие алерты в одно сообщение.
+3. **Inhibit (Подавление):** "Если упал весь дата-центр, не шлли алерты о том, что не работает конкретный сервис внутри него".
+4. **Receiver (Получатель):** Конфигурация канала связи (Webhook, Email, PagerDuty).
+
+```yaml
+global:
+  resolve_timeout: 5m # Через сколько считать алерт решенным, если он пропал
+
+# Маршрутизация по умолчанию
+route:
+  group_by: ['alertname', 'job'] # Группировать алерты по имени и джобе
+  group_wait: 30s  # Ждать 30 сек перед первой отправкой группы (чтобы собрать пачку)
+  group_interval: 5m # Ждать 5 мин перед отправкой следующей пачки по той же группе
+  repeat_interval: 4h # Повторять уведомление каждые 4 часа, если алерт не закрыт
+  
+  receiver: 'default-receiver' # Куда слать всё, что не попало в другие правила
+
+  # Дочерние маршруты
+  routes:
+    - match:
+        severity: critical
+      receiver: 'telegram-critical'
+      continue: false # Не проверять следующие правила, если это совпало
+      
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+
+# Конфигурация получателей
+receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'admin@example.com'
+        from: 'alertmanager@example.com'
+        smarthost: 'smtp.example.com:587'
+        auth_username: 'alertmanager@example.com'
+        auth_password: 'password'
+
+  - name: 'telegram-critical'
+    telegram_configs:
+      - bot_token: '123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'
+        chat_id: '-1001234567890'
+        parse_mode: 'HTML'
+        # Можно кастомизировать сообщение
+        message: |
+          <b>🔥 CRITICAL ALERT</b>
+          Alert: {{ .CommonAnnotations.summary }}
+          Description: {{ .CommonAnnotations.description }}
+          Instance: {{ .CommonLabels.instance }}
+
+  - name: 'slack-warnings'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
+        channel: '#devops-warnings'
+        text: "{{ .CommonAnnotations.summary }}"
+```
+
+#### Как это работает вместе (Жизненный цикл алерта):
+
+1. **Evaluation:** Prometheus вычисляет `expr` каждые `evaluation_interval` (по умолчанию 15s или 1m).
+2. **Pending:** Выражение стало истинным. Запускается таймер `for`.
+3. **Firing:** Таймер `for` истек. Prometheus отправляет JSON-пакет с алертом в Alertmanager.
+    - Статус алерта в пакете: `firing`.
+4. **Grouping in AM:** Alertmanager получает алерт.
+    - Он смотрит на `group_by`.
+    - Ждет `group_wait` (30s), чтобы собрать другие алерты из этой же группы (например, если упали 3 сервера одновременно, они соберутся в одно сообщение).
+5. **Sending:** Alertmanager отправляет сообщение в Receiver (Telegram/Slack).
+6. **Resolved:**
+    - Выражение в Prometheus стало ложным.
+    - Prometheus ждет немного (чтобы убедиться, что это не флуктуация) и отправляет в Alertmanager пакет со статусом `resolved`.
+    - Alertmanager помечает алерт как решенный и может отправить уведомление "All clear" (если настроено).
 
 ### Масштабирование и Федерация:
 
