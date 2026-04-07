@@ -54,7 +54,7 @@ Prometheus сам по себе только собирает данные и в
 - DNS (SRV records).
 - Файлов (`file_sd_configs`) — удобно для Ansible/Terraform: ты генерируешь JSON/YAML файл со списком хостов, а Prometheus его перечитывает.
 
-### Принцип работы (Data Flow):
+#### Принцип работы (Data Flow):
 
 1. **Конфигурация:** Ты описываешь в `prometheus.yml`, кого опрашивать (`scrape_configs`) и как часто (`scrape_interval`).
 2. **Service Discovery:** Prometheus определяет список целей (targets).
