@@ -447,12 +447,6 @@ alerting:
 apt-get update && apt-get install alertmanager
 ```
 
-**Запуск:**
-
-```bash
-./alertmanager --config.file=alertmanager.yml
-```
-
 Alertmanager получает алерты от Prometheus и решает, что с ними делать. По умолчанию он слушает порт **9093**.
 
 1. **Route (Маршрут):** Дерево решений. "Если severity=critical -> звони в телефон. Если warning -> пиши в Slack".
@@ -511,6 +505,12 @@ receivers:
       - api_url: 'https://hooks.slack.com/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX'
         channel: '#devops-warnings'
         text: "{{ .CommonAnnotations.summary }}"
+```
+
+**Запуск менеджера:**
+
+```bash
+./alertmanager --config.file=alertmanager.yml
 ```
 
 #### Как это работает вместе (Жизненный цикл алерта):
