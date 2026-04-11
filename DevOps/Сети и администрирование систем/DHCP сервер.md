@@ -277,3 +277,137 @@ kea-dhcp4 -t /etc/kea/kea-dhcp4.conf
 ```bash
 systemctl restart kea-dhcp4-server
 ```
+
+#### Настройка DDNS:
+
+##### Подготовка BIND (DNS Server):
+
+Прежде чем настраивать Kea, нужно подготовить зону в BIND, чтобы она принимала обновления.
+
+###### 1. Генерация TSIG ключа. 
+
+Используем утилиту `tsig-keygen` (входит в пакет bind-utils):
+
+```bash
+tsig-keygen -a hmac-sha256 dhcp-update-key
+```
+
+Вывод будет примерно таким:
+```bash
+key "dhcp-update-key" {
+  algorithm hmac-sha256;
+  secret "Base64StringSecretKeyHere==";
+};
+```
+
+###### 2. Сохранение ключа и подключение ключа:
+
+Сохраняем этот ключ в файл на сервере BIND (например, `/etc/bind/keys/dhcp-key.conf`) и подключаем его в `named.conf`:
+
+```vim
+include "/etc/bind/keys/dhcp-key.conf";
+```
+
+###### 3. Настройка зоны в `named.conf`:
+
+Разрешаем обновления только с этого ключа и только для конкретной зоны.
+
+```vim
+zone "mycorp.local" {
+    type master;
+    file "/var/lib/bind/db.mycorp.local";
+    
+    # Разрешаем обновления только с нашим ключом
+    update-policy {
+        grant dhcp-update-key name mycorp.local. A;
+        grant dhcp-update-key name mycorp.local. PTR;
+        # Или более гибко: grant dhcp-update-key wildcard mycorp.local. ANY;
+    };
+};
+```
+
+###### 4. Перезагрузка служб bind:
+
+```bash
+systemctl restart bind
+```
+
+##### Настройка Kea DHCP:
+
+В Kea за DDNS отвечает отдельный демон **`kea-dhcp-ddns`** (ранее назывался `dhcid`). Он работает как посредник между `kea-dhcp4` и DNS-сервером.
+
+Нужно настроить два файла:
+
+1. `kea-dhcp4.conf` (основной сервер) — чтобы он отправлял события в DDNS-демон.
+2. `kea-dhcp-ddns.conf` (демон обновлений) — чтобы он ходил в BIND.
+
+###### kea-dhcp4.conf:
+
+Добавь блок `dhcp-ddns` внутри основного блока `Dhcp4`.
+
+```vim
+"Dhcp4": {
+    ...
+    "dhcp-ddns": {
+        "enable-updates": true,           // Включить DDNS
+        "qualifying-suffix": ".mycorp.local.", // Суффикс домена (обязательно с точкой в конце!)
+        "override-client-update": true,   // Игнорировать флаг клиента "не обновляй DNS", делать всегда
+        "replace-client-name": false,     // Не заменять имя клиента, если оно уже есть
+        "generated-prefix": "host-",      // Префикс для имен, если клиент не прислал свое имя
+        "update-on-renewal": true         // Обновлять TTL при продлении аренды
+    },
+    
+    "option-data": [
+        { "name": "domain-name", "data": "mycorp.local" }
+    ],
+    
+    "subnets": [
+        {
+            "subnet": "192.168.10.0/24",
+            "interface": "eth0",
+            "pools": [ { "pool": "192.168.10.50 - 192.168.10.200" } ]
+        }
+    ]
+}
+```
+
+
+###### Конфигурация `kea-dhcp-ddns.conf`:
+
+Это конфиг самого демона, который делает работу по обновлению зон.
+
+```vim
+"DhcpDdns": {
+    "ip-address": "127.0.0.1",
+    "port": 53001,
+    
+    "update-forward": true,   // Обновлять A записи (имя -> IP)
+    "update-reverse": true,   // Обновлять PTR записи (IP -> имя)
+    
+    "dns-servers": [
+        {
+            "ip-address": "127.0.0.1",
+            "port": 53
+        }
+    ],
+    
+    "zones": [
+        {
+            "name": "mycorp.local.",
+            "forward": true
+        },
+        {
+            "name": "10.168.192.in-addr.arpa.", 
+            "reverse": true
+        }
+    ],
+    
+    "tsig-keys": [
+        {
+            "name": "dhcp-update-key",
+            "algorithm": "hmac-sha256",
+            "secret": "Base64StringSecretKeyHere=="
+        }
+    ]
+}
+```
