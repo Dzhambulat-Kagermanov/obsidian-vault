@@ -377,38 +377,82 @@ systemctl restart bind
 Это конфиг самого демона, который делает работу по обновлению зон.
 
 ```json
-"DhcpDdns": {
-	// Адрес и порт, на которых **сам демон `kea-dhcp-ddns`** слушает запросы.
-    "ip-address": "127.0.0.1",
-    "port": 53001,
-    
-    "update-forward": true,   // Обновлять A записи (имя -> IP)
-    "update-reverse": true,   // Обновлять PTR записи (IP -> имя)
-    
-    "dns-servers": [
-        {
-            "ip-address": "127.0.0.1",
-            "port": 53
-        }
-    ],
-    
-    "zones": [
-        {
-            "name": "mycorp.local.",
-            "forward": true
-        },
-        {
-            "name": "10.168.192.in-addr.arpa.", 
-            "reverse": true
-        }
-    ],
-    
-    "tsig-keys": [
-        {
-            "name": "dhcp-update-key",
-            "algorithm": "hmac-sha256",
-            "secret": "Base64StringSecretKeyHere=="
-        }
-    ]
+{
+	"DhcpDdns": {
+		// Адрес и порт, на которых сам демон `kea-dhcp-ddns` слушает запросы, на которые основной kea-dhcp4 отправляет запросы
+	    "ip-address": "127.0.0.1",
+	    "port": 53001,
+	    
+	    "update-forward": true,   // Разрешает создание/обновление A-записей
+	    "update-reverse": true,   // Разрешает создание/обновление PTR-записей
+	    
+	    // Список DNS-серверов, которым демон будет отправлять запросы на обновление зон.
+	    "dns-servers": [
+	        {
+	            "ip-address": "127.0.0.1",
+	            "port": 53
+	        }
+	    ],
+	    
+	    // Маппинг зон
+	    "zones": [
+	        {
+	            "name": "mycorp.local.",
+	            // Флаг, указывающие тип зоны
+	            "forward": true
+	        },
+	        {
+	            "name": "10.168.192.in-addr.arpa.", 
+	            // Флаг, указывающие тип зоны
+	            "reverse": true
+	        }
+	    ],
+	    
+	    "tsig-keys": [
+	        {
+		        // Имя ключа. Должно совпадать с именем ключа в BIND
+	            "name": "dhcp-update-key",
+	            // Алгоритм хеширования. Должен совпадать с BIND
+	            "algorithm": "hmac-sha256",
+	            // Сам секретный ключ tsig-key
+	            "secret": "Base64StringSecretKeyHere=="
+	        }
+	    ]
+	}
+}
+```
+
+Если ты нужно использовать **разные ключи** для прямой и обратной зоны (например, `key-forward` и `key-reverse`), то в современном Kea нужно явно указать, какой ключ использовать для какой зоны, добавив параметр `"tsig-key-name"` внутрь объекта зоны.
+
+```json
+{
+	"DhcpDdns": {
+	    ...
+	    "zones": [
+	        {
+	            "name": "mycorp.local.",
+	            "forward": true,
+	            "tsig-key-name": "key-forward"   // <--- Явно указываем ключ для этой зоны
+	        },
+	        {
+	            "name": "10.168.192.in-addr.arpa.", 
+	            "reverse": true,
+	            "tsig-key-name": "key-reverse"   // <--- Явно указываем другой ключ
+	        }
+	    ],
+	    
+	    "tsig-keys": [
+	        {
+	            "name": "key-forward",
+	            "algorithm": "hmac-sha256",
+	            "secret": "SecretForward=="
+	        },
+	        {
+	            "name": "key-reverse",
+	            "algorithm": "hmac-sha256",
+	            "secret": "SecretReverse=="
+	        }
+	    ]
+	}
 }
 ```
