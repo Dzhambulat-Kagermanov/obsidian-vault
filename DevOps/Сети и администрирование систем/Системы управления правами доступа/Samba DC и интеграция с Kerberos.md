@@ -946,3 +946,4 @@ apt-get update && apt-get install admc gpui
 В качестве примера меняем фон рабочего стола для всех хостов в группе:
 
 ![[image (32).png]]
+
