@@ -413,6 +413,9 @@ ipa user-undel a.smith
 ipa user-find --last=Иванов
 ipa user-find --all | grep -A5 "uid:"
 
+# Вывести всех пользователей
+ipa user-find | grep "User login: "
+
 # Добавить пользователя в группу
 ipa group-add-member developers --users=iivanov
 
