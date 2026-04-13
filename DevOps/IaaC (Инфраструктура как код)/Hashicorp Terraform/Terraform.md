@@ -403,6 +403,8 @@ Terraform разрешает конфликты значений по строг
 | Забрать выходные данные другого TF-стэка                          | `data.terraform_remote_state`                  |
 | Вызвать внешний скрипт или HTTP-API                               | Встроенные `external` и `http` провайдеры      |
 
+###### Синтаксис:
+
 ```hcl
 data "<тип_провайдера>" "<локальное_имя>" {
   # Аргументы поиска/фильтрации (зависят от провайдера)
@@ -451,35 +453,165 @@ resource "aws_instance" "web" {
 |`API rate limit / timeout`|Частые запросы или медленные data-источники|Кешировать локально, уменьшить `plan` frequency, использовать `retry` в провайдере|
 |`Drift на каждом плане`|Внешний ресурс меняется независимо от TF|Использовать `ignore_changes` в `resource` (если данные передаются туда) или принять drift как норму|
 
-
 ##### `resource {}` — Создание/управление инфраструктурой:
 
-```hcl
-resource "aws_instance" "web" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = var.instance_type
-  subnet_id     = aws_subnet.public.id
+Это **основной строительный блок** Terraform. Описывает желаемое состояние реального объекта инфраструктуры (виртуальная машина, сеть, база данных, IAM-роль и т.д.). Terraform сравнивает конфигурацию с текущим состоянием (`.tfstate`) и API провайдера, строит Directed Acyclic Graph (DAG) зависимостей и выполняет CRUD-операции в безопасном порядке.
+###### Синтаксис:
 
-  tags = merge(local.common_tags, {
-    Name = "${var.environment}-web-server"
-  })
+```hcl
+resource "<тип_провайдера>" "<локальное_имя>" {
+  # Аргументы ресурса (зависят от провайдера)
+  ami           = "ami-0c55b159cbfafe1f0"
+  instance_type = "t3.micro"
+  
+  # Мета-аргументы Terraform
+  depends_on = [...]
+  count      = ...
+  for_each   = ...
+  lifecycle  = { ... }
+}
+```
+
+###### Как читать значения:
+
+Синтаксис: `<тип>.<локальное_имя>.<атрибут>`
+
+```hcl
+aws_instance.web.id
+aws_instance.web.public_ip
+aws_instance.web.security_groups
+```
+
+###### Зависимости:
+
+| Тип                         | Как работает                                                                                                                   | Когда использовать                                                                                                        |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| **Неявные (рекомендуется)** | Terraform автоматически строит граф, если в аргументах ресурса есть ссылки на другие блоки: `subnet_id = aws_subnet.public.id` | 95% случаев. Предсказуемо, поддерживает рефакторинг.                                                                      |
+| **Явные (`depends_on`)**    | Принудительно задаёт порядок: `depends_on = [aws_iam_role_policy.attach]`                                                      | Только когда TF не видит связь (например, API-специфичные задержки, внешние webhook, IAM propagation, legacy-провайдеры). |
+> **Антипаттерн:** Использование `depends_on` для "просто подстраховки". Это ломает параллельное выполнение, увеличивает время `apply` и маскирует архитектурные проблемы.
+
+###### Масштабирование::
+
+|Конструкция|Входные данные|Индексация|Поведение при изменении|Рекомендация|
+|---|---|---|---|---|
+|`count = N`|Число|`count.index` (0..N-1)|Удаление элемента сдвигает индексы → **пересоздание всех последующих ресурсов**|Только для идентичных ресурсов без индивидуальной настройки|
+|`for_each = map/set`|Карта или множество|`each.key`, `each.value`|Ключи стабильны. Добавление/удаление затрагивает только изменённые элементы|✅ **Production-стандарт** для любых списков с уникальными параметрами|
+
+```hcl
+# count (простой, но рискованный при изменениях)
+resource "aws_instance" "worker" {
+  count         = 3
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.medium"
+  tags          = { Name = "worker-${count.index}" }
+}
+
+# for_each (стабильный, рекомендуемый)
+resource "aws_instance" "worker" {
+  for_each = toset(["frontend", "backend", "monitoring"])
+  ami      = data.aws_ami.ubuntu.id
+  instance_type = each.key == "monitoring" ? "t3.small" : "t3.medium"
+  tags     = { Name = "worker-${each.key}" }
+}
+```
+
+###### Мета-блок `lifecycle {}`:
+
+Управляет поведением ресурса на этапах создания, обновления и удаления.
+
+| Аргумент                 | Эффект                                                     | Когда применять                                                                            |
+| ------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `create_before_destroy`  | Меняет порядок: Create → Update → Delete                   | Load Balancers, Auto Scaling, DB replicas, DNS records                                     |
+| `prevent_destroy`        | Запрещает `destroy`. TF вернёт ошибку при попытке удаления | Production БД, VPC, корпоративные шлюзы, compliance-ресурсы                                |
+| `ignore_changes`         | Игнорирует изменения указанных атрибутов при `plan`        | Теги от сторонних систем (CMDB, backup agents), auto-rotation паролей, external monitoring |
+| `ignore_changes = [all]` | Игнорирует **все** изменения                               | Ресурсы, полностью управляемые внешним процессом (импорт, legacy)                          |
+| `replace_triggered_by`   | Форсирует пересоздание при изменении внешнего значения     | TF 1.0+. Заменяет `triggers` в некоторых провайдерах                                       |
+
+```hcl
+resource "aws_instance" "critical_db" {
+  # ... аргументы ...
 
   lifecycle {
-    create_before_destroy = true
-    prevent_destroy       = false
-    ignore_changes        = [tags["LastModified"]]
+    create_before_destroy = true  # Zero-downtime: создаёт новый до удаления старого
+    prevent_destroy       = true  # Блокирует удаление (требует явного override в коде)
+    ignore_changes        = [     # Игнорирует внешние изменения (drift)
+      tags["LastModified"],
+      user_data,
+      ami
+    ]
   }
 }
 ```
 
-**Ключевые мета-аргументы ресурсов:**
+###### Мета-аргументы `precondition` / `postcondition`:
 
-| Аргумент             | Назначение                                                               |
-| -------------------- | ------------------------------------------------------------------------ |
-| `depends_on`         | Явная зависимость (использовать только если неявные ссылки не сработали) |
-| `count` / `for_each` | Генерация нескольких экземпляров                                         |
-| `provider`           | Выбор конкретного провайдера (при наличии алиасов)                       |
-| `lifecycle`          | Управление поведением создания/обновления/удаления                       |
+Валидация **до** и **после** создания ресурса. Блокируют `apply` на ранних этапах.
+
+```hcl
+resource "aws_instance" "validated" {
+  ami           = "ami-0c55b159cbfafe1f0"
+  instance_type = var.instance_type
+
+  precondition {
+    condition     = var.instance_type != "t3.nano"
+    error_message = "t3.nano запрещён политикой безопасности."
+  }
+
+  postcondition {
+    condition     = self.public_ip != null
+    error_message = "Инстанс не получил публичный IP. Проверьте security groups и route table."
+  }
+}
+```
+
+>`self` в `postcondition` ссылается на атрибуты только что созданного ресурса.
+
+###### Мета-аргумент sensitive:
+
+Маскирует значение в логах, `plan` output и `.tfstate` (помечает как `sensitive_attributes`).
+
+```hcl
+resource "aws_db_instance" "main" {
+  engine   = "postgres"
+  password = var.db_password  # Если var.db_password sensitive, TF автоматически помечает атрибут
+  # или явно:
+  # password = sensitive(var.db_password)
+}
+```
+
+###### Вложенные объекты с dynamic:
+
+Многие ресурсы принимают повторяющиеся вложенные блоки (правила SG, тома EBS, маршруты). `dynamic {}` генерирует их из коллекций.
+
+```hcl
+resource "aws_security_group" "web" {
+  name        = "web-sg"
+  description = "Allow web traffic"
+  vpc_id      = aws_vpc.main.id
+
+  dynamic "ingress" {
+    for_each = var.allowed_ports
+    content {
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
+
+  # Аналогично для egress, tags, route, block_device_mapping и т.д.
+}
+```
+
+###### Ограничения и типичные ошибки:
+
+|Проблема|Причина|Решение|
+|---|---|---|
+|`Cannot create/destroy resource`|API провайдера не поддерживает in-place update для изменённого атрибута|Проверьте `plan`: TF покажет `# forces replacement`. При необходимости используйте `lifecycle.ignore_changes`|
+|`Cycle detected`|Круговая зависимость: A → B → A|Разорвите цикл через `locals`, вынесите общий ресурс в отдельный модуль или используйте `data`|
+|`Resource not found in state`|Удалили из `.tf`, но забыли `terraform apply` → TF попытается удалить реальный объект|Используйте `terraform state rm` или верните блок в конфиг|
+|`Drift на каждом плане`|Внешний процесс меняет ресурс (backup agent, auto-scaling, ручные правки)|`ignore_changes` для конкретных атрибутов или переход к full GitOps-модели|
+|`Sensitive value leaked in logs`|`TF_LOG=DEBUG` или провайдер логирует сырые запросы|В production используйте `TF_LOG=INFO` или `WARN`, настройте маскирование в CI|
 
 ##### `locals {}` — Локальные вычисляемые переменные:
 
