@@ -699,7 +699,7 @@ instance_type = var.instance_types[var.environment]
 instance_type = var.environment == "prod" ? "t3.large" : "t3.micro"
 ```
 
-###### Правила:
+**Правила:**
 
 - **Ленивое вычисление:** Выполняется только одна ветка.
 - **Типы должны быть совместимы:** `string` и `number` в разных ветках вызовут ошибку. TF пытается привести к общему типу.
@@ -719,14 +719,78 @@ region = try(var.override_region, data.aws_region.current.name, "eu-west-1")
 
 ##### `coalesce()` и `lookup()`:
 
-```hcl
-# Возвращает первое non-null / non-empty значение
-name = coalesce(var.custom_name, local.default_name, "unnamed")
+###### coalesce():
 
+Возвращает первое non-null / non-empty значение
+
+```hcl
+name = coalesce(var.custom_name, local.default_name, "unnamed")
+```
+
+###### lookup():
+
+Возвращает значение из коллекции типа `map` или `object` по указанному ключу. Если ключа нет → возвращает переданное значение по умолчанию. Синтаксис:
+
+`lookup(map, key, default)`
+
+```
 # Безопасный доступ к мапе (legacy, но всё ещё работает)
 subnet = lookup(var.subnet_map, var.environment, "subnet-default")
 ```
 
+**Критичные нюансы lookup:**
+
+1. **Жадное вычисление `default`**  
+    `default` вычисляется **всегда**, даже если ключ найден.
+    ```hcl
+    # ❌ expensive_function() вызовется в любом случае
+	val = lookup(var.map, "key", expensive_function())
+	
+	# ✅ try() вычисляет default только при ошибке (ленивое)
+	val = try(var.map["key"], expensive_function())
+    ```    
+2. **Совместимость типов**  
+    Тип `default` должен быть совместим с типом значений в мапе. Иначе TF не сможет вывести общий тип.
+3. **Не работает с `list`**  
+    `lookup` только для key-value структур. Для списков используйте `one()`, `element()` или `try(list[0], default)`.
+
+##### `can()` и `one()` (TF 0.15+):
+
+###### can():
+
+Проверка валидности выражения без выброса ошибки
+
+```hcl
+has_vpc = can(data.aws_vpc.main.id)
+```
+
+###### one():
+
+Возвращает **ровно один** элемент из коллекции (`list`, `set`, `tuple`). Предназначен для ситуаций, когда вы _ожидаете_ 0 или 1 результат, но хотите избежать ошибки при пустой коллекции.
+
+Классическая проблема: `aws_instance.web[0].id` падает с `Invalid index`, если инстансов ещё нет (пустой список). `one()` решает это.
+
+| Количество элементов в коллекции | Результат                                                                               |
+| -------------------------------- | --------------------------------------------------------------------------------------- |
+| `0` (пусто)                      | `null`                                                                                  |
+| `1`                              | Возвращает этот элемент                                                                 |
+| `>1`                             | ❌ **Ошибка** (`Invalid value for "collection" argument: must have exactly one element`) |
+
+```hcl
+primary_ip = one(aws_instance.web[*].private_ip)
+```
+
+##### Обработка `(known after apply)` в условиях
+
+```hcl
+# ❌ Может сломать plan, если var.public_ip неизвестен
+is_public = var.public_ip == "0.0.0.0/0" ? true : false
+
+# ✅ Безопасно: TF отложит вычисление до apply
+is_public = var.public_ip != null && var.public_ip != "0.0.0.0/0"
+```
+
+TF автоматически помечает выражения как `deferred`, если в них участвуют `(known after apply)` значения. Но некоторые функции (`length`, `jsonencode`, `regex`) требуют известных значений на `plan`. Используйте `try()` или переносите логику в `locals`.
 
 #### Масштабирование и генерация ресурсов:
 
