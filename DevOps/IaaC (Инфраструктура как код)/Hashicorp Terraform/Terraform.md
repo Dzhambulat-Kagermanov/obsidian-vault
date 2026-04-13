@@ -280,3 +280,105 @@ module "vpc" {
   public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
 }
 ```
+
+#### Выражения, ссылки и логика:
+
+##### Ссылки на другие блоки:
+
+Синтаксис: `<тип_блока>.<имя_блока>.<атрибут>`
+
+```hcl
+resource "aws_instance" "app" {
+  ami           = data.aws_ami.ubuntu.id          # ссылка на data
+  subnet_id     = module.vpc.public_subnets[0]    # ссылка на module
+  user_data     = file("scripts/init.sh")         # ссылка на файл
+}
+```
+
+##### Условные выражения:
+
+```hcl
+instance_type = var.environment == "prod" ? "t3.large" : "t3.micro"
+
+# Безопасный доступ к атрибутам (TF 0.13+)
+region_name = try(var.region_override, data.aws_region.current.name)
+```
+
+##### Коллекции и доступ:
+
+```hcl
+# Списки
+availability_zones = ["eu-west-1a", "eu-west-1b"]
+first_az           = var.azs[0]
+
+# Карты (мапы)
+subnet_map = {
+  prod = "subnet-111"
+  dev  = "subnet-222"
+}
+target_subnet = var.subnet_map[var.environment]
+```
+
+#### Генерация ресурсов: `count`, `for_each`, `dynamic`:
+
+| Конструкция          | Тип входных данных | Когда использовать                                                      |
+| -------------------- | ------------------ | ----------------------------------------------------------------------- |
+| `count = N`          | Число              | Одинаковые ресурсы, простые случаи                                      |
+| `for_each = map/set` | Коллекция          | Уникальные ресурсы, изменение отдельных элементов без пересоздания всех |
+| `dynamic {}`         | Любой iterable     | Повторяющиеся вложенные блоки внутри ресурса                            |
+
+```hcl
+# count
+resource "aws_instance" "workers" {
+  count         = 3
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.medium"
+  tags          = { Name = "worker-${count.index}" }
+}
+
+# for_each (рекомендуется для production)
+resource "aws_security_group_rule" "ingress" {
+  for_each = {
+    http  = 80
+    https = 443
+  }
+  type              = "ingress"
+  from_port         = each.value
+  to_port           = each.value
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_sg.main.id
+}
+
+# dynamic (вложенные блоки)
+resource "aws_instance" "with_volumes" {
+  dynamic "ebs_block_device" {
+    for_each = var.extra_volumes
+    content {
+      device_name = ebs_block_device.value.device
+      volume_size = ebs_block_device.value.size
+    }
+  }
+}
+```
+
+### Организация файлов (конвенции):
+
+Terraform **не требует** строгого именования файлов. Он склеивает все `*.tf` и `*.tf.json` в директории в единую конфигурацию. Но сообщество выработало стандарт:
+
+```Structure
+project/
+├── main.tf           # Ресурсы, data, locals
+├── variables.tf      # Объявления переменных
+├── outputs.tf        # Выходные значения
+├── providers.tf      # Блоки terraform {} и provider {}
+├── locals.tf         # Вычисляемые значения
+├── versions.tf       # required_version, required_providers (опционально)
+├── modules/          # Локальные модули
+├── envs/
+│   ├── dev.tfvars
+│   └── prod.tfvars
+└── .gitignore
+```
+
+> Не создавайте `main.tf` размером в 2000 строк. Разбивайте по логическим доменам: `vpc.tf`, `compute.tf`, `db.tf`, `iam.tf`.
