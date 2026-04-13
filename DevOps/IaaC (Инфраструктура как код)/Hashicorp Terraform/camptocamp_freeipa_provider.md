@@ -307,7 +307,6 @@ resource "freeipa_group" "ad_engineers" {
   external    = true
 }
 ```
-
 ##### Опциональные поля:
 
 | Поле              | Тип       | Описание                                                                                                                                                                                                                                                                                                          |
@@ -316,6 +315,105 @@ resource "freeipa_group" "ad_engineers" {
 | **`gidnumber`**   | `Number`  | **Числовой идентификатор группы (GID)**. Позволяет задать GID вручную вместо автоматического назначения FreeIPA. Полезно при миграции с legacy-систем или для синхронизации с существующей инфраструктурой, где важны конкретные числовые идентификаторы. **Важно:** `gidnumber` применим только для POSIX-групп. |
 | **`nonposix`**    | `Boolean` | **Создать группу как не-POSIX**. Если установлено `true`, группа не будет иметь GID и связанных с ним POSIX-атрибутов. Такие группы используются для ролевого управления доступом (RBAC), правил HBAC и sudo, а также для интеграции с доверенными доменами Active Directory.                                     |
 | **`external`**    | `Boolean` | **Разрешить добавление внешних участников** из доверенных доменов (например, Active Directory). При установке `true` в группу можно добавлять пользователей и группы из доменов, с которыми настроены доверительные отношения (trust). Группа при этом автоматически становится не-POSIX.                         |
+
+#### freeipa_user_group_membership:
+
+Этот ресурс управляет связью между пользователем и группой. **Важно:** он не создаёт ни пользователя, ни группу — оба объекта должны уже существовать в FreeIPA (или быть созданы в том же Terraform-проекте через `freeipa_user` и `freeipa_group`).
+
+| Поле        | Тип      | Обязательное      | Описание                                                                                                                                                                   |
+| ----------- | -------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`name`**  | `String` | **Да**            | Имя группы, в которую добавляется пользователь. Это поле является **обязательным идентификатором** ресурса. Именно по нему Terraform определяет, с какой группой работает. |
+| **`user`**  | `String` | Нет               | Логин пользователя (`uid`), которого нужно добавить в группу.                                                                                                              |
+| **`group`** | `String` | Нет               | Альтернативный способ указать группу. На практике чаще используется `name`, а `group` может применяться для ссылок на ресурс `freeipa_group`.                              |
+| **`id`**    | `String` | Только для чтения | Уникальный идентификатор ресурса в состоянии Terraform. Автоматически формируется провайдером.                                                                             |
+
+1. **Один ресурс — одно членство**: Каждый экземпляр `freeipa_user_group_membership` добавляет **одного** пользователя в **одну** группу. Для добавления пользователя в несколько групп нужно создать несколько ресурсов.
+2. **Ссылки на ресурсы**: Рекомендуется использовать ссылки на атрибуты других ресурсов вместо хардкода строк, чтобы обеспечить правильный порядок создания и зависимости.
+
+**Добавление пользователя в одну группу:**
+
+```hcl
+resource "freeipa_group" "developers" {
+  cn = "developers"
+}
+
+resource "freeipa_user" "john" {
+  name       = "jdoe"
+  first_name = "John"
+  last_name  = "Doe"
+}
+
+resource "freeipa_user_group_membership" "john_developer" {
+  name = freeipa_group.developers.cn
+  user = freeipa_user.john.name
+}
+```
+
+**Добавление одного пользователя в несколько групп:**
+
+```hcl
+resource "freeipa_user" "alice" {
+  name       = "asmith"
+  first_name = "Alice"
+  last_name  = "Smith"
+}
+
+resource "freeipa_group" "developers" {
+  cn = "developers"
+}
+
+resource "freeipa_group" "admins" {
+  cn = "admins"
+}
+
+resource "freeipa_group" "docker_users" {
+  cn = "docker_users"
+}
+
+# Добавляем Алису в три разные группы
+resource "freeipa_user_group_membership" "alice_developer" {
+  name = freeipa_group.developers.cn
+  user = freeipa_user.alice.name
+}
+
+resource "freeipa_user_group_membership" "alice_admin" {
+  name = freeipa_group.admins.cn
+  user = freeipa_user.alice.name
+}
+
+resource "freeipa_user_group_membership" "alice_docker" {
+  name = freeipa_group.docker_users.cn
+  user = freeipa_user.alice.name
+}
+```
+
+**Массовое добавление пользователей с использованием `for_each`:**
+
+```hcl
+resource "freeipa_group" "engineering" {
+  cn = "engineering"
+}
+
+# Список пользователей
+locals {
+  engineers = ["jsmith", "bwayne", "ckent"]
+}
+
+# Создаём пользователей
+resource "freeipa_user" "engineer" {
+  for_each   = toset(local.engineers)
+  name       = each.key
+  first_name = "Engineer"
+  last_name  = each.key
+}
+
+# Добавляем каждого в группу engineering
+resource "freeipa_user_group_membership" "engineer_membership" {
+  for_each = toset(local.engineers)
+  name     = freeipa_group.engineering.cn
+  user     = freeipa_user.engineer[each.key].name
+}
+```
 
 #### freeipa_dns_zone:
 
