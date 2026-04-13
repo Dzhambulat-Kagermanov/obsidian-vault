@@ -134,25 +134,85 @@ HCL — **декларативный** язык, оптимизированны�
 
 ##### `terraform {}` - Настройки самого Terraform:
 
-Управляет версиями, бэкендом и провайдерами.
+Блок `terraform {}` — это **манифест проекта**. Он не описывает инфраструктуру, а настраивает сам инструмент: какие версии CLI допустимы, откуда загружать плагины и где хранить состояние. Выполняется **до** любых других операций и валидируется при `terraform init`.
 
 ```hcl
 terraform {
-  required_version = ">= 1.5.0"
+  # 1. Версия CLI
+  required_version = ">= 1.5.0, < 2.0.0"
 
+  # 2. Зависимости провайдеров
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "= 3.80.0"
+    }
   }
 
+  # 3. Хранилище состояния
   backend "s3" {
-    bucket = "my-tf-state-bucket"
-    key    = "prod/terraform.tfstate"
-    region = "eu-west-1"
+    bucket         = "company-tf-state-prod"
+    key            = "networking/terraform.tfstate"
+    region         = "eu-west-1"
+    encrypt        = true
+    dynamodb_table = "tf-lock-table"
   }
 }
+```
+
+###### `required_version`:
+
+Предотвращает поломки из-за изменений в синтаксисе HCL, поведении функций или внутренней логике планировщика.
+
+- Ограничивает версию Terraform CLI, которая может выполнять код.
+- Проверяется **первой**, ещё до скачивания провайдеров.
+- Синтаксис использует стандартные constratint-ы: `>=`, `<=`, `=`, `!=`, `~>`.
+
+###### `required_providers`:
+
+Этот блок **только объявляет зависимость**. Конфигурация экземпляра провайдера (регион, ключи, алиасы) пишется **вне** блока `terraform {}`
+
+- Объявляет **зависимости** от плагинов провайдеров (аналог `package.json` или `requirements.txt`).
+- `source` — URL реестра. По умолчанию `registry.terraform.io/<namespace>/<name>`. Для OpenTofu: `registry.opentofu.org/...`
+- `version` — фиксирует совместимую версию. `~> 5.0` означает `>= 5.0.0, < 6.0.0`.
+
+###### `backend`:
+
+Взаимодействует с хранилищем для записи/чтения/блокировки **файла состояния** (`terraform.tfstate`).
+
+- Определяет, где и как хранится файл состояния `terraform.tfstate`.
+- По умолчанию: `local` (файл в рабочей директории).
+- Популярные удалённые бэкенды: `s3`, `gcs`, `azurerm`, `pg`, `consul`, `http`, `cloud`.
+- **Ограничение:** В блоке `backend` **нельзя использовать переменные** (`var.`, `local.`), функции или ссылки на ресурсы. Только литералы или подстановка через `-backend-config` при `init`.
+	```bash
+	# Подстановка при init
+	terraform init -backend-config="bucket=my-state-prod"
+	```
+
+**Миграция бэкенда требует явного флага**. `terraform init -migrate-state` перенесёт локальный стейт в удалённый. Без флага TF создаст новый пустой стейт.
+
+###### Жизненный цикл работы provider-а и backend-а:
+
+```
+terraform init
+   ↓
+[Backend] → подключается к S3/GCS/Cloud, проверяет доступ, настраивает locking
+[Provider] → скачивается в .terraform/providers/, проверяется версия
+   ↓
+terraform plan
+   ↓
+[Backend] → отдаёт текущий terraform.tfstate
+[Provider] → через API опрашивает реальное состояние инфраструктуры
+[Terraform Core] → сравнивает "желаемое" (.tf) с "фактическим" (state + API), строит план
+   ↓
+terraform apply
+   ↓
+[Provider] → выполняет API-запросы на создание/изменение/удаление ресурсов
+[Backend] → принимает обновлённый .tfstate, версионирует, обновляет lock
 ```
 
 ##### `provider {}` - Настройки для провайдеров:
