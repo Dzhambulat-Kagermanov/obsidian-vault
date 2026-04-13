@@ -217,6 +217,8 @@ terraform apply
 
 ##### `provider {}` - Настройки для провайдеров:
 
+**Конфигурационный блок**, который инициализирует HTTP/API-клиент для взаимодействия с целевой платформой. В отличие от `resource {}`, он не создаёт объекты инфраструктуры, а настраивает _канал связи_ с провайдером: аутентификацию, регион, эндпоинты, таймауты и политики повторных попыток.
+
 ```hcl
 provider "aws" {
   region = var.aws_region
@@ -228,6 +230,98 @@ provider "aws" {
   alias  = "east"
 }
 ```
+###### Жизненный цикл и место в архитектуре:
+
+| Этап                | Что происходит с `provider {}`                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `terraform init`    | Скачивает бинарник провайдера в `.terraform/providers/`, фиксирует версию в `.terraform.lock.hcl`, валидирует обязательные аргументы |
+| `terraform plan`    | Инициализирует клиент, выполняет `Configure`-метод плагина, подготавливает API-соединения                                            |
+| `terraform apply`   | Переиспользует уже созданный клиент для CRUD-операций. Не пересоздаёт провайдер при каждом ресурсе                                   |
+| `terraform destroy` | Использует тот же клиент для обратных вызовов API                                                                                    |
+> **Важно!** Блоки `provider {}` вычисляются **до** планирования ресурсов. Они **не могут** ссылаться на атрибуты `resource`, `data` или `output`. Это решает проблему "курицы и яйца" и гарантирует детерминированность плана.
+
+**Пример конфигурации provider-а:**
+
+```hcl
+provider "aws" {
+  region                      = "eu-west-1"
+  profile                     = var.aws_profile          # Профиль из ~/.aws/credentials
+  assume_role                 = [{ role_arn = var.role_arn }]
+  skip_credentials_validation = false
+  skip_requesting_account_id  = false
+  endpoints {
+    ec2 = "https://ec2.eu-west-1.amazonaws.com"
+    s3  = "https://s3.eu-west-1.amazonaws.com"
+  }
+}
+```
+###### Аутентификация и безопасность:
+
+Terraform следует **цепочке доверия** провайдера. Порядок проверки зависит от платформы, но общие принципы едины:
+
+| Метод                  | Пример (AWS)                                                                      | Когда использовать                                        |
+| ---------------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| Переменные окружения   | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`                 | CI/CD, контейнеры, ephemeral-раннеры                      |
+| CLI-конфигурация       | `~/.aws/credentials`, `az login`, `gcloud auth login`                             | Локальная разработка                                      |
+| IAM-роли (EC2/EKS/GCE) | Instance Profile, Pod Identity, Workload Identity                                 | Production в облаке, managed-кластеры                     |
+| Cross-account assume   | `assume_role { role_arn = "arn:aws:iam::123456789012:role/TerraformExec" }`       | Централизованные аккаунты, security boundaries            |
+| OIDC / Web Identity    | `assume_role_with_web_identity { role_arn = ..., web_identity_token_file = ... }` | GitHub Actions, GitLab CI, GitOps без долгосрочных ключей |
+###### Правила безопасности:
+
+1. **Никогда не храните `access_key`/`secret_key` в коде.** Используйте `var.*` + `.tfvars` + CI/CD secrets.
+2. **Включайте `skip_credentials_validation = false`** в production. Иначе ошибки аутентификации всплывут только во время `apply`.
+3. **Используйте краткосрочные токены** (STS, OIDC) вместо долгосрочных ключей.
+4. **Разделяйте права:** провайдер для IAM ≠ провайдер для Compute ≠ провайдер для Network.
+
+###### Мультипровайдеры:
+
+По умолчанию Terraform разрешает **один** блок конфигурации на тип провайдера. Если нужно работать с несколькими регионами, аккаунтами или кластерами одного типа, используется `alias`.
+
+```hcl
+# Дефолтный провайдер (без алиаса)
+provider "aws" {
+  region = "eu-west-1"
+}
+
+# Дополнительные провайдеры
+provider "aws" {
+  region = "us-east-1"
+  alias  = "us"
+}
+
+provider "aws" {
+  region = "ap-southeast-1"
+  alias  = "ap"
+  assume_role {
+    role_arn = "arn:aws:iam::987654321098:role/CrossAccountTF"
+  }
+}
+```
+
+###### Как использовать в ресурсах:
+
+```hcl
+# Берёт провайдер по умолчанию (eu-west-1)
+resource "aws_instance" "eu" {
+  ami           = "ami-0c55b159cbfafe1f0"
+  instance_type = "t3.micro"
+}
+
+# Явное указание алиаса
+resource "aws_instance" "us" {
+  provider      = aws.us          # ← обязательно, если алиасов > 1
+  ami           = "ami-0c55b159cbfafe1f0"
+  instance_type = "t3.micro"
+}
+
+# Data-источники тоже поддерживают provider
+data "aws_vpc" "default" {
+  provider = aws.ap
+  default  = true
+}
+```
+
+> **Важно!** Если объявлен `alias` и **нет** блока без алиаса, все ресурсы обязаны явно указывать `provider = aws.<имя>`. Иначе `plan` упадёт с `Provider configuration not present`.
 
 ##### `variable {}` — Декларация переменных:
 
