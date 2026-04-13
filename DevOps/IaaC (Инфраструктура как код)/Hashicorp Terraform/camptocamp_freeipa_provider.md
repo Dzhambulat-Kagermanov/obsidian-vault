@@ -38,43 +38,27 @@ provider "freeipa" {
 | `cacert`   | `string` | ❌            | Путь к локальному PEM-файлу CA (если сертификат не в системном хранилище) |
 | `timeout`  | `string` | ❌            | Таймаут запросов (например, `"30s"`, `"2m"`)                              |
 
+**Соответствие параметров и переменных окружения:**
+
+- `host`: `FREEIPA_HOST`
+- `username`: `FREEIPA_USERNAME`
+- `password`: `FREEIPA_PASSWORD`
+- `insecure`: `FREEIPA_INSECURE`
+
 > **Важно!** Провайдер использует **HTTPS + Kerberos-аутентификацию через XML-RPC**. Если `cacert` не указан, он полагается на системные CA.
 
 ### Основные ресурсы и их параметры:
 
-#### freeipa_user:
+#### freeipa_host:
 
-Управление учётными записями пользователей.
-
-| Параметр          | Тип            | Обязательный | Описание                                                                                               |
-| ----------------- | -------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
-| `uid`             | `string`       | ✅            | Логин пользователя (уникальный)                                                                        |
-| `givenname`       | `string`       | ✅            | Имя                                                                                                    |
-| `sn`              | `string`       | ✅            | Фамилия                                                                                                |
-| `password`        | `string`       | ❌            | Пароль. Если не указан, пользователь создаётся с флагом `--random` или требует сброса при первом входе |
-| `mail`            | `string`       | ❌            | Основной email                                                                                         |
-| `ssh_public_keys` | `list(string)` | ❌            | Список SSH-ключей (PEM-строки)                                                                         |
-| `groups`          | `list(string)` | ❌            | Группы, в которые добавляется пользователь                                                             |
-| `homedir`         | `string`       | ❌            | Путь к домашнему каталогу (по умолчанию `/home/<uid>`)                                                 |
-| `shell`           | `string`       | ❌            | Оболочка (по умолчанию `/bin/sh`)                                                                      |
-| `uid_number`      | `number`       | ❌            | UID (если не указан, генерируется автоматически)                                                       |
-| `gid_number`      | `number`       | ❌            | GID первичной группы                                                                                   |
-| `userauthtype`    | `string`       | ❌            | Тип аутентификации: `password`, `radius`, `otp`, `pkinit`                                              |
-| `setattr`         | `map(string)`  | ❌            | Произвольные LDAP-атрибуты в формате `attr=value`                                                      |
-| `force`           | `bool`         | ❌            | `true` позволяет игнорировать конфликты при удалении/изменении                                         |
-Пример ресурса:
+Этот ресурс используется для добавления и настройки хостов в домене FreeIPA.
 
 ```hcl
-resource "freeipa_user" "alice" {
-  uid        = "alice"
-  givenname  = "Alice"
-  sn         = "Johnson"
-  password   = "MySecurePass123!"  # опционально
-  mail       = ["alice@example.com"]  # ← список!
-  sshpubkey  = [
-    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIG...", 
-    "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ..."
-  ]
-  groups     = ["developers", "engineers"]
+resource "freeipa_host" "example" {
+  fqdn        = "my-server.example.com" # Полное доменное имя хоста
+  description = "Мой тестовый сервер"
+  force       = true # Удалить хост, даже если он не отвечает
+  random      = true # Сгенерировать случайный пароль для хоста
+  userpassword = "secure_password" # Установить пароль для хоста
 }
 ```
