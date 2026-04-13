@@ -490,29 +490,16 @@ aws_instance.web.security_groups
 | **Явные (`depends_on`)**    | Принудительно задаёт порядок: `depends_on = [aws_iam_role_policy.attach]`                                                      | Только когда TF не видит связь (например, API-специфичные задержки, внешние webhook, IAM propagation, legacy-провайдеры). |
 > **Антипаттерн:** Использование `depends_on` для "просто подстраховки". Это ломает параллельное выполнение, увеличивает время `apply` и маскирует архитектурные проблемы.
 
-###### Масштабирование::
+###### Выбор нужного провайдера для resource:
 
-|Конструкция|Входные данные|Индексация|Поведение при изменении|Рекомендация|
-|---|---|---|---|---|
-|`count = N`|Число|`count.index` (0..N-1)|Удаление элемента сдвигает индексы → **пересоздание всех последующих ресурсов**|Только для идентичных ресурсов без индивидуальной настройки|
-|`for_each = map/set`|Карта или множество|`each.key`, `each.value`|Ключи стабильны. Добавление/удаление затрагивает только изменённые элементы|✅ **Production-стандарт** для любых списков с уникальными параметрами|
+Если для конкретного ресурса нужно выбрать другой провайдер того же типа то можно воспользоваться свойством provider где указывается alias провайдера:
 
 ```hcl
-# count (простой, но рискованный при изменениях)
-resource "aws_instance" "worker" {
-  count         = 3
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t3.medium"
-  tags          = { Name = "worker-${count.index}" }
-}
+provider "aws" { region = "eu-west-1" }
+provider "aws" { region = "us-east-1", alias = "us" }
 
-# for_each (стабильный, рекомендуемый)
-resource "aws_instance" "worker" {
-  for_each = toset(["frontend", "backend", "monitoring"])
-  ami      = data.aws_ami.ubuntu.id
-  instance_type = each.key == "monitoring" ? "t3.small" : "t3.medium"
-  tags     = { Name = "worker-${each.key}" }
-}
+resource "aws_instance" "eu" { ... }
+resource "aws_instance" "us" { provider = aws.us ... }
 ```
 
 ###### Мета-блок `lifecycle {}`:
