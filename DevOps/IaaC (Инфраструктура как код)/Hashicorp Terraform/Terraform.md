@@ -126,4 +126,157 @@ Terraform **не хранит информацию о реальной инфр�
 | `terraform providers`                      | Выводит дерево используемых провайдеров и их версии.                                                          |
 | `terraform graph \| dot -Tpng > graph.png` | Генерирует граф зависимостей ресурсов (требует установленного `graphviz`).                                    |
 
-### 
+### HCL базовые конструкции:
+
+HCL — **декларативный** язык, оптимизированный для описания инфраструктуры. Вы указываете что должно существовать, а Terraform сам вычисляет _как_ этого добиться, учитывая зависимости и порядок операций.
+
+#### Основные блоки конфигурации:
+
+##### `terraform {}` - Настройки самого Terraform:
+
+Управляет версиями, бэкендом и провайдерами.
+
+```hcl
+terraform {
+  required_version = ">= 1.5.0"
+
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+
+  backend "s3" {
+    bucket = "my-tf-state-bucket"
+    key    = "prod/terraform.tfstate"
+    region = "eu-west-1"
+  }
+}
+```
+
+##### `provider {}` - Настройки для провайдеров:
+
+```hcl
+provider "aws" {
+  region = var.aws_region
+  alias  = "west"          # Алиас для работы в нескольких регионах/аккаунтах
+}
+
+provider "aws" {
+  region = "us-east-1"
+  alias  = "east"
+}
+```
+
+##### `variable {}` — Декларация переменных:
+
+Декларация переменных которые могут быть использованы в конфигурациях, и которые могут быть переданы при применении конфигураций.
+
+```hcl
+variable "environment" {
+  description = "Окружение: dev, staging, prod"
+  type        = string
+  default     = "dev"
+
+  validation {
+    condition     = contains(["dev", "staging", "prod"], var.environment)
+    error_message = "Допустимые значения: dev, staging, prod"
+  }
+}
+
+variable "instance_count" {
+  type        = number
+  sensitive   = false
+}
+```
+
+##### `locals {}` — Локальные вычисляемые переменные:
+
+Не принимают значения снаружи, нужны для DRY и переиспользования логики внутри модуля.
+
+```hcl
+locals {
+  common_tags = {
+    Environment = var.environment
+    ManagedBy   = "terraform"
+    Project     = "web-app"
+  }
+  is_prod = var.environment == "prod" ? true : false
+}
+```
+
+##### `data {}` — Чтение существующих ресурсов (только для чтения):
+
+```hcl
+data "aws_ami" "ubuntu" {
+  most_recent = true
+  owners      = ["099720109477"] # Canonical
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+}
+
+# Использование: data.aws_ami.ubuntu.id
+```
+
+##### `resource {}` — Создание/управление инфраструктурой:
+
+```hcl
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+  subnet_id     = aws_subnet.public.id
+
+  tags = merge(local.common_tags, {
+    Name = "${var.environment}-web-server"
+  })
+
+  lifecycle {
+    create_before_destroy = true
+    prevent_destroy       = false
+    ignore_changes        = [tags["LastModified"]]
+  }
+}
+```
+
+**Ключевые мета-аргументы ресурсов:**
+
+|Аргумент|Назначение|
+|---|---|
+|`depends_on`|Явная зависимость (использовать только если неявные ссылки не сработали)|
+|`count` / `for_each`|Генерация нескольких экземпляров|
+|`provider`|Выбор конкретного провайдера (при наличии алиасов)|
+|`lifecycle`|Управление поведением создания/обновления/удаления|
+##### `output {}` — Экспорт значений после `apply`:
+
+```hcl
+output "instance_ip" {
+  description = "Публичный IP веб-сервера"
+  value       = aws_instance.web.public_ip
+  sensitive   = false
+}
+
+output "db_password" {
+  value     = aws_db_instance.main.password
+  sensitive = true  # Не выводится в консоль, только в стейт
+}
+```
+
+##### `module {}` — Вызов переиспользуемого блока:
+
+```hcl
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "5.1.0"
+
+  name = "${var.environment}-vpc"
+  cidr = "10.0.0.0/16"
+
+  azs             = ["eu-west-1a", "eu-west-1b"]
+  private_subnets = ["10.0.1.0/24", "10.0.2.0/24"]
+  public_subnets  = ["10.0.101.0/24", "10.0.102.0/24"]
+}
+```
