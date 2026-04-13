@@ -751,7 +751,7 @@ subnet = lookup(var.subnet_map, var.environment, "subnet-default")
 3. **Не работает с `list`**  
     `lookup` только для key-value структур. Для списков используйте `one()`, `element()` или `try(list[0], default)`.
 
-##### `can()` и `one()` (TF 0.15+):
+#### `can()` и `one()` (TF 0.15+):
 
 ##### can():
 
