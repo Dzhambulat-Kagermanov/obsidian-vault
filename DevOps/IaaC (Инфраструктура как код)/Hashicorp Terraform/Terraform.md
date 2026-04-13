@@ -570,26 +570,6 @@ resource "aws_db_instance" "main" {
 
 Многие ресурсы принимают повторяющиеся вложенные блоки (правила SG, тома EBS, маршруты). `dynamic {}` генерирует их из коллекций.
 
-```hcl
-resource "aws_security_group" "web" {
-  name        = "web-sg"
-  description = "Allow web traffic"
-  vpc_id      = aws_vpc.main.id
-
-  dynamic "ingress" {
-    for_each = var.allowed_ports
-    content {
-      from_port   = ingress.value
-      to_port     = ingress.value
-      protocol    = "tcp"
-      cidr_blocks = ["0.0.0.0/0"]
-    }
-  }
-
-  # Аналогично для egress, tags, route, block_device_mapping и т.д.
-}
-```
-
 ###### Ограничения и типичные ошибки:
 
 |Проблема|Причина|Решение|
@@ -686,44 +666,53 @@ target_subnet = var.subnet_map[var.environment]
 
 #### Генерация ресурсов: `count`, `for_each`, `dynamic`:
 
-| Конструкция          | Тип входных данных | Когда использовать                                                      |
-| -------------------- | ------------------ | ----------------------------------------------------------------------- |
-| `count = N`          | Число              | Одинаковые ресурсы, простые случаи                                      |
-| `for_each = map/set` | Коллекция          | Уникальные ресурсы, изменение отдельных элементов без пересоздания всех |
-| `dynamic {}`         | Любой iterable     | Повторяющиеся вложенные блоки внутри ресурса                            |
+| Конструкция          | Входные данные      | Индексация                       | Поведение при изменении                                                         |
+| -------------------- | ------------------- | -------------------------------- | ------------------------------------------------------------------------------- |
+| `count = N`          | Число               | `count.index` (0..N-1)           | Удаление элемента сдвигает индексы → **пересоздание всех последующих ресурсов** |
+| `for_each = map/set` | Карта или множество | `each.key`, `each.value`         | Ключи стабильны. Добавление/удаление затрагивает только изменённые элементы     |
+| `dynamic {}`         | Любой iterable      | Используется совместно с foreach | Повторяющиеся вложенные блоки внутри ресурса                                    |
+
+**count:**
 
 ```hcl
-# count
-resource "aws_instance" "workers" {
+# count (простой, но рискованный при изменениях)
+resource "aws_instance" "worker" {
   count         = 3
   ami           = data.aws_ami.ubuntu.id
   instance_type = "t3.medium"
   tags          = { Name = "worker-${count.index}" }
 }
+```
 
-# for_each (рекомендуется для production)
-resource "aws_security_group_rule" "ingress" {
-  for_each = {
-    http  = 80
-    https = 443
-  }
-  type              = "ingress"
-  from_port         = each.value
-  to_port           = each.value
-  protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
-  security_group_id = aws_sg.main.id
+for_each
+
+```hcl
+resource "aws_instance" "worker" {
+  for_each = toset(["frontend", "backend", "monitoring"])
+  ami      = data.aws_ami.ubuntu.id
+  instance_type = each.key == "monitoring" ? "t3.small" : "t3.medium"
+  tags     = { Name = "worker-${each.key}" }
 }
+```
 
-# dynamic (вложенные блоки)
-resource "aws_instance" "with_volumes" {
-  dynamic "ebs_block_device" {
-    for_each = var.extra_volumes
+
+```hcl
+resource "aws_security_group" "web" {
+  name        = "web-sg"
+  description = "Allow web traffic"
+  vpc_id      = aws_vpc.main.id
+
+  dynamic "ingress" {
+    for_each = var.allowed_ports
     content {
-      device_name = ebs_block_device.value.device
-      volume_size = ebs_block_device.value.size
+      from_port   = ingress.value
+      to_port     = ingress.value
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
     }
   }
+
+  # Аналогично для egress, tags, route, block_device_mapping и т.д.
 }
 ```
 
