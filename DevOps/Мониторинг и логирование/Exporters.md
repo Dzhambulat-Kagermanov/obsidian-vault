@@ -40,18 +40,21 @@ ExecStart=/usr/local/bin/node_exporter \
 WantedBy=multi-user.target
 ```
 
-> **Важно:** По умолчанию Node Exporter слушает на порту **9100**.
-
 **Ключевые флаги запуска:**
 
 - `--web.listen-address=":9100"`: Адрес и порт для скрапинга.
-- `--path.procfs="/proc"` и `--path.sysfs="/sys"`: Пути к псевдофайловым системам. Полезно, если ты запускаешь exporter внутри контейнера или chroot, где эти пути смонтированы иначе.
+- **`--web.telemetry-path="/metrics"`**: Путь, по которому Prometheus будет забирать метрики.
+- **`--collector.<name>`**: Включение/выключение сборщиков. По умолчанию включены основные. Например, отключить сборщик нагрузок: `--no-collector.loadavg`
 - `--collector.disable-defaults`: Отключает все коллекторы по умолчанию. Используется вместе с явным включением нужных через `--collector.<name>`. Это хорошая практика для снижения нагрузки и шума в метриках.
+- **`--collector.textfile.directory="/path/to/directory"`**: Директория для сбора кастомных метрик из файлов (textfile collector).
 - `--log.level=info`: Уровень логирования (debug, info, warn, error).
+
+> **Важно:** По умолчанию Node Exporter слушает на порту **9100**.
 
 **Запуск сервиса node_exporter.service**
 
 ```bash
+systemctl daemon-reload
 systemctl enable --now node_exporter.service
 ```
 
