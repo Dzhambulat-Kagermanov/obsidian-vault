@@ -385,7 +385,7 @@ ipa ping
 
 ```bash
 # Создать пользователя
-ipa user-add <login> --first=Иван --last=Иванов --email=ivanov@example.com iivanov
+ipa user-add --first=Иван --last=Иванов --email=ivanov@example.com iivanov
 
 # Информация о пользователе
 ipa user-show iivanov
