@@ -89,6 +89,7 @@ vim /etc/kea/kea-dhcp4.conf
 		{  
 			"id": 72,  
 			"subnet": "192.168.72.0/24",  
+			"interface": "eth0",
 		}  
 	]
 }
@@ -105,6 +106,7 @@ vim /etc/kea/kea-dhcp4.conf
 		{  
 			"id": 72,  
 			"subnet": "192.168.72.0/24",  
+			"interface": "eth0",
 			"pools": [
 				{
 					"pool": "192.168.72.100 - 192.168.72.199"
@@ -123,7 +125,8 @@ vim /etc/kea/kea-dhcp4.conf
 	"subnet4": [
 		{  
 			"id": 72,  
-			"subnet": "192.168.72.0/24",  
+			"subnet": "192.168.72.0/24",
+			"interface": "eth0",  
 			"pools": [  
 				{
 					"pool": "192.168.72.100 - 192.168.72.199"
