@@ -21,7 +21,7 @@ terraform {
 }
 
 provider "freeipa" {
-  url          = "https://ipa.example.com"
+  host         = "10.10.10.10"
   username     = "admin"
   password     = var.ipa_password
   ca_cert_path = "/path/to/ipa-ca.crt"
