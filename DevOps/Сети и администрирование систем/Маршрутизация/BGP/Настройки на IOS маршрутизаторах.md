@@ -172,10 +172,3 @@ router bgp 65000
   ! Теперь, даже если клиент прислал no-export, у нас в таблице его нет.
   ! Мы можем смело анонсировать маршрут дальше.
 ```
-
-!!TODO 
-neighbor next-hop-self 
-neighbor update-source
-neighbor soft-reconfiguration inbound
-no bgp ebgp-requires-policy
-путь по умолчанию default information
