@@ -1,0 +1,290 @@
++---CI
+|       Circle CI.md
+|       Github Actions.md
+|       Gitlab CI.md
+|       Jenkins.md
+|
++---GitOps
+|       ArgoCD.md
+|       Codefresh.md
+|       Flux.md
+|
++---IaaC (Инфраструктура как код)
+|   |   Pulumi.md
+|   |
+|   +---Ansible
+|   |       Galaxy.md
+|   |       Playbook-и.md
+|   |       Введение.md
+|   |       Инвентарный файл.md
+|   |       Настройка глобального файла конфигурации.md
+|   |       Переменные.md
+|   |       Структура проекта.md
+|   |       Управление секретами.md
+|   |
+|   \---Hashicorp Terraform
+|           aiven_aiven_provider.md
+|           camptocamp_freeipa_provider.md
+|           cloudflare_cloudflare_provider.md
+|           datadog_datadog_provider.md
+|           dmacvicar_libvirt_provider.md
+|           gitlabhq_gitlab_provider.md
+|           hashicorp_helm_provider.md
+|           hashicorp_kubernetes_provider.md
+|           hashicorp_vault_provider.md
+|           integrations_github_provider.md
+|           openstack_provider.md
+|           telmate_proxmox_provider.md
+|           Terraform.md
+|
++---LFS (Linux From Scratch)
+|       gitkeep.md
+|
++---Артефакты
+|       Artifactory.md
+|       Nexus.md
+|
++---Базы данных и хранилища
+|       Click-house.md
+|       DBeaver.md
+|       InfluxDB.md
+|       Liquibase.md
+|       MinIO.md
+|       Nextcloud.md
+|       PostgreSQL.md
+|       Redis.md
+|       S3.md
+|       SDN.md
+|       SQL язык.md
+|
++---Балансировка, проксирование и веб-сервера
+|       Angie.md
+|       Apache.md
+|       Caddy.md
+|       HAProxy.md
+|       Istio.md
+|       MetalLB.md
+|       Nginx.md
+|       Traefik.md
+|
++---Безопасность в инфраструктуре
+|       Falco.md
+|       Hashicorp Vault.md
+|       Keycloack.md
+|       Kube-hunter.md
+|       OWASP Zap.md
+|       Snort.md
+|       SonarQube.md
+|       Suricata.md
+|       Terrascan.md
+|       Trivy.md
+|       Zeek.md
+|
++---Брокеры сообщений
+|       Apache Kafka.md
+|       RabbitMQ.md
+|
++---Контейнеризация и оркестрация
+|   |   Apache Mesos.md
+|   |   ContainerD.md
+|   |   Docker.md
+|   |   Helm.md
+|   |   Podman.md
+|   |
+|   \---Kubernetes
+|           Основные компоненты.md
+|
++---Мониторинг, логирование и трасировка
+|       Cadvisor.md
+|       ELK (ElasticSearch, Logstash, Kibana).md
+|       Grafana и Grafana Loki.md
+|       Jaeger.md
+|       Portainer.md
+|       Prometheus Exporters.md
+|       Prometheus.md
+|       Victoria Metrics.md
+|       Zabbix.md
+|
++---Сетевое администрирование
+|   |   Cast-ы.md
+|   |   Анализ пакетов с WireShark.md
+|   |   Модель OSI.md
+|   |   Модель TCP IP.md
+|   |   Проксирование.md
+|   |
+|   +---Cisco
+|   |       Основы.md
+|   |
+|   +---FRR
+|   |       Основы.md
+|   |
+|   +---IP телефония
+|   |       Asterisk.md
+|   |       QoS.md
+|   |       SIP.md
+|   |
+|   +---L2
+|   |   |   Cisco CDP.md
+|   |   |   Cisco Netflow.md
+|   |   |   LACP.md
+|   |   |   LLDP.md
+|   |   |   MPLS.md
+|   |   |   Openvswitch.md
+|   |   |   STP, RSTP и MSTP.md
+|   |   |   Tcp dump.md
+|   |   |   UDLD.md
+|   |   |   VLAN.md
+|   |   |   Зеркалирование портов.md
+|   |   |   Основы.md
+|   |   |
+|   |   \---Безопасность
+|   |           DAI.md
+|   |           DHCP Snooping.md
+|   |           IPSG.md
+|   |           MAC Address Table Flooding Protection.md
+|   |           NAC 802.1x.md
+|   |           Port Security.md
+|   |
+|   +---L3
+|   |   |   BFD.md
+|   |   |   Cisco EIGRP.md
+|   |   |   NAT.md
+|   |   |   RIP.md
+|   |   |   Настройка IPv6.md
+|   |   |
+|   |   +---BGP
+|   |   |       1. Основы.md
+|   |   |       2. Настройки соседства на IOS маршрутизаторах.md
+|   |   |       3. Настройки на IOS маршрутизаторах.md
+|   |   |       4. Полезная информация.md
+|   |   |
+|   |   +---IS-IS
+|   |   |       1. Основы.md
+|   |   |       2. Соседство.md
+|   |   |       3. Настройки на IOS маршрутизаторах.md
+|   |   |       4. Полезная информация.md
+|   |   |
+|   |   +---OSPF
+|   |   |       1. Основы.md
+|   |   |       2. Соседство.md
+|   |   |       3. Работа внутри одной области.md
+|   |   |       4. Настройка на IOS маршрутизаторах.md
+|   |   |
+|   |   +---Резервирование маршрутизатора
+|   |   |       CISCO GLBP.md
+|   |   |       Cisco HSRP.md
+|   |   |       Keepalived, VRRP и VIP.md
+|   |   |
+|   |   \---Тунелирование
+|   |           GRE.md
+|   |           IPSec.md
+|   |           VPN.md
+|   |           VXLan.md
+|   |           Основы.md
+|   |
+|   +---L4
+|   |       SS и Netstat.md
+|   |       TCP.md
+|   |       UDP.md
+|   |
+|   +---L7
+|   |   |   AMQP.md
+|   |   |   DNS и конфигурация BIND.md
+|   |   |   FTP сервер.md
+|   |   |   NTP сервер.md
+|   |   |   RADIUS сервер.md
+|   |   |   SMTP сервер.md
+|   |   |   SNMP.md
+|   |   |   SSH.md
+|   |   |
+|   |   \---DHCP сервер
+|   |           Kea4.md
+|   |
+|   +---MicroTik
+|   |       Основы.md
+|   |
+|   \---Фильтрация трафика
+|       |   ACL.md
+|       |   DPI.md
+|       |   Ideco Novum.md
+|       |   iptables.md
+|       |   nftables.md
+|       |   ufw.md
+|       |   Vipnet Xfirewall.md
+|       |   Цепочки фильтрации.md
+|       |
+|       \---_Изображения
+|               1576325460345.jpg
+|
++---Системное администрирование
+|   |   Loopback и null интерфейсы.md
+|   |   SELinux.md
+|   |   Webhook-и.md
+|   |   Аудит системы и журналирование.md
+|   |   Сертификация.md
+|   |
+|   +---Linux
+|   |   |   Bash скрипты.md
+|   |   |   Stdin и Stdout.md
+|   |   |   Systemd и unit файлы.md
+|   |   |   Команды для работы с текстом.md
+|   |   |   Основы.md
+|   |   |   Планирование запусков скриптов.md
+|   |   |   Полезные команды.md
+|   |   |   Права и доступы.md
+|   |   |   Процессы.md
+|   |   |   Ссылочные файлы.md
+|   |   |
+|   |   \---VIM
+|   |           Основы.md
+|   |
+|   +---Microsoft
+|   |   \---Active Directory
+|   |           Sysvol и NTDS.md
+|   |           Групповые политики.md
+|   |           Доверительные отношения.md
+|   |           Домен контроллер.md
+|   |           Доменный лес и дерево доменов.md
+|   |           Инструменты администрирования.md
+|   |           Объекты.md
+|   |           Основы.md
+|   |           Роли FSMO.md
+|   |           Сайты.md
+|   |
+|   +---Работа с дисками и данными
+|   |   |   RAID массивы.md
+|   |   |   Основы работы с дисками и файловой системой.md
+|   |   |   Сетевые диски.md
+|   |   |
+|   |   \---RAID массивы
+|   +---Резервное копирование и синхронизация
+|   |       Rsync.md
+|   |       КиберBackup.md
+|   |       Основы.md
+|   |
+|   \---Системы управления правами доступа
+|           FreeIPA.md
+|           Samba DC и интеграция с Kerberos.md
+|
++---Тестирование
+|       Cucumber.md
+|       Selenium.md
+|       Squash.md
+|
+\---Услуги
+    |   FaaS (Функция как услуга).md
+    |   FWaaS (Firewall как услуга).md
+    |   LBaaS (Балансировка как услуга).md
+    |
+    +---IaaS (Инфраструктура как услуга)
+    |       AWS.md
+    |       Azure.md
+    |       Google.md
+    |       Openstack.md
+    |
+    \---PaaS (Платформа как услуга)
+            AWS Lambda.md
+            Firebase.md
+            Heroku.md
+            OpenShift.md
+            Rancher.md
